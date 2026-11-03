@@ -32,10 +32,10 @@ export const CREW: CrewDef[] = [
     winCooldown: [30, 60],
     lossCooldown: [70, 130],
     scanningThoughts: [
-      'lurking for a breakout…',
-      'watching 20m range highs',
-      'finger on the trigger',
-      'waiting for liquidity sweep',
+      'mengintai breakout…',
+      'memantau high range 20m',
+      'jari di pemicu',
+      'menunggu sapuan likuiditas',
     ],
   },
   {
@@ -49,10 +49,10 @@ export const CREW: CrewDef[] = [
     winCooldown: [25, 55],
     lossCooldown: [60, 110],
     scanningThoughts: [
-      'measuring buyer pressure…',
-      'riding the trend wave',
-      'scanning 5m momentum',
-      'chasing green candles',
+      'mengukur tekanan pembeli…',
+      'menunggangi gelombang tren',
+      'memindai momentum 5m',
+      'mengejar candle hijau',
     ],
   },
   {
@@ -66,10 +66,10 @@ export const CREW: CrewDef[] = [
     winCooldown: [35, 70],
     lossCooldown: [80, 150],
     scanningThoughts: [
-      'hunting RSI oversold…',
-      'bids stacked below',
-      'waiting for the dip',
-      'watching for wick rejections',
+      'berburu RSI oversold…',
+      'bid menumpuk di bawah',
+      'menunggu dip',
+      'memantau penolakan wick',
     ],
   },
   {
@@ -83,10 +83,10 @@ export const CREW: CrewDef[] = [
     winCooldown: [30, 65],
     lossCooldown: [70, 120],
     scanningThoughts: [
-      'listening for whale prints…',
-      'tracking big wallets',
-      'watching volume anomalies',
-      'following smart money',
+      'mendengar jejak whale…',
+      'melacak wallet besar',
+      'memantau anomali volume',
+      'mengikuti smart money',
     ],
   },
   {
@@ -102,10 +102,10 @@ export const CREW: CrewDef[] = [
     winCooldown: [15, 35],
     lossCooldown: [40, 80],
     scanningThoughts: [
-      'reading the order book…',
-      'sniping micro spreads',
-      'grid of tiny wins',
-      'watching bid/ask imbalance',
+      'membaca order book…',
+      'menembak micro spread',
+      'panen profit kecil-kecil',
+      'memantau ketimpangan bid/ask',
     ],
   },
 ]

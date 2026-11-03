@@ -39,6 +39,13 @@ const MIN_TRADE_USD = 10 // Hyperliquid exchange minimum notional — SIM mirror
 const SCRATCH_PCT = 0.08 // |pnl%| below this = breakeven "scratch" trade
 const STREAK_MILESTONES = [5, 10, 20, 50]
 
+/** regime labels for bot speech (Bahasa Indonesia) */
+const REGIME_ID: Record<ExitPlan['regime'], string> = {
+  trending: 'tren',
+  ranging: 'sideways',
+  manual: 'manual',
+}
+
 export type RiskProfile = 'chill' | 'balanced' | 'turbo'
 
 /**
@@ -486,21 +493,21 @@ export class Engine {
       this.riskLatchNotified = true
       this.notify({
         kind: 'error',
-        title: 'Daily loss stop hit — no new risk',
-        body: `Down ${Math.abs(this.risk.dailyLossPct(modeEquity)).toFixed(1)}% today. Exits & protection still run; new entries pause until you reset the stop.`,
+        title: 'Daily stop kena — tanpa risiko baru',
+        body: `Turun ${Math.abs(this.risk.dailyLossPct(modeEquity)).toFixed(1)}% hari ini. Exit & proteksi tetap jalan; entry baru berhenti sampai daily stop direset.`,
       })
     }
     if (!this.risk.isLatched() && this.riskLatchNotified) {
       this.riskLatchNotified = false
-      this.notify({ kind: 'info', title: 'Risk desk open again', body: 'Daily stop reset — the crew may take new trades.' })
+      this.notify({ kind: 'info', title: 'Meja risiko buka lagi', body: 'Daily stop direset — crew boleh ambil trade baru.' })
     }
     const usage = this.risk.dailyStopUsage(modeEquity)
     if (usage >= 0.8 && usage < 1 && !this.riskWarn80Notified) {
       this.riskWarn80Notified = true
       this.notify({
         kind: 'info',
-        title: 'Approaching daily loss stop',
-        body: `${Math.round(usage * 100)}% of the −${this.risk.limits.dailyLossStopPct}% daily stop used. Exits stay active; entries thin out.`,
+        title: 'Mendekati daily loss stop',
+        body: `${Math.round(usage * 100)}% dari daily stop −${this.risk.limits.dailyLossStopPct}% sudah terpakai. Exit tetap aktif; entry mulai jarang.`,
       })
     }
     if (usage < 0.8) this.riskWarn80Notified = false
@@ -559,7 +566,7 @@ export class Engine {
             qty: p.szi,
             entryPx: p.entryPx,
             status: 'open',
-            reason: 'adopted existing position',
+            reason: 'adopsi posisi yang sudah ada',
           },
         })
         .catch(() => null)
@@ -577,14 +584,14 @@ export class Engine {
         riskUsd: 0, // re-derived below from the live plan
         openedAt: Date.now(),
         mode: this.settings.mode,
-        reason: 'adopted existing position',
+        reason: 'adopsi posisi yang sudah ada',
         adopted: true,
         plan: this.exitPlan(idleBot.def, p.coin),
       })
       const adopted = this.positions[this.positions.length - 1]
       adopted.riskUsd = stressedRiskOfPosition(sizeUsd, p.entryPx, adopted.plan.slPx)
       this.risk.reserve(row.id, { riskUsd: adopted.riskUsd, mode: this.settings.mode })
-      idleBot.state.thought = `adopted $${p.coin} from the exchange`
+      idleBot.state.thought = `adopsi $${p.coin} dari exchange`
       idleBot.state.thoughtAt = Date.now()
     }
 
@@ -600,7 +607,7 @@ export class Engine {
         if (ex.szi > 0) pos.qty = ex.szi
       } else if (Date.now() - pos.openedAt > 20_000) {
         // position vanished on the exchange (closed externally)
-        await this.finalizeClose(pos, 'closed on exchange', ex?.entryPx ?? null, this.unrealizedFor(pos).pnl)
+        await this.finalizeClose(pos, 'tertutup di exchange', ex?.entryPx ?? null, this.unrealizedFor(pos).pnl)
       }
     }
   }
@@ -631,11 +638,11 @@ export class Engine {
       const isRunner = pos.peakPct >= tpPx * 0.5
 
       let exitReason: string | null = null
-      if (pos.lastPnlPct >= tpPx) exitReason = 'take profit'
+      if (pos.lastPnlPct >= tpPx) exitReason = 'ambil profit'
       else if (pos.lastPnlPct <= -slPx) exitReason = 'stop loss'
       else if (isRunner && pos.lastPnlPct <= pos.peakPct - trailPx)
         exitReason = 'trailing stop'
-      else if (!isRunner && age >= timeStopSec) exitReason = 'time stop'
+      else if (!isRunner && age >= timeStopSec) exitReason = 'habis waktu'
 
       // margin guard (SIM honesty): never let a sim loss exceed ~92% of margin
       if (
@@ -644,7 +651,7 @@ export class Engine {
         this.settings.leverage > 1 &&
         u.pnl <= -(pos.sizeUsd / this.settings.leverage) * 0.92
       )
-        exitReason = 'liquidation guard'
+        exitReason = 'pengaman likuidasi'
 
       if (exitReason) await this.closePosition(pos, exitReason)
     }
@@ -668,7 +675,7 @@ export class Engine {
       if (!res.ok) {
         const rt = this.bots.get(pos.botKey)
         if (rt) {
-          rt.state.thought = `couldn't close $${pos.coin}: ${res.error?.slice(0, 40) ?? 'exchange error'}`
+          rt.state.thought = `gagal tutup $${pos.coin}: ${res.error?.slice(0, 40) ?? 'error exchange'}`
           rt.state.thoughtAt = Date.now()
           rt.cooldownUntil = Date.now() + 30_000
         }
@@ -723,10 +730,10 @@ export class Engine {
           : rand(def.lossCooldown[0], def.lossCooldown[1])
       rt.cooldownUntil = Date.now() + cd * 1000
       rt.state.thought = isScratch
-        ? `flat on $${pos.coin} · ${reason}`
+        ? `flat di $${pos.coin} · ${reason}`
         : pnl >= 0
-          ? `banked +${pnlPct.toFixed(1)}% on $${pos.coin}${rMult != null ? ` (+${rMult.toFixed(2)}R)` : ''}`
-          : `cut ${pnlPct.toFixed(1)}% on $${pos.coin}${rMult != null ? ` (${rMult.toFixed(2)}R)` : ''}`
+          ? `panen +${pnlPct.toFixed(1)}% di $${pos.coin}${rMult != null ? ` (+${rMult.toFixed(2)}R)` : ''}`
+          : `potong ${pnlPct.toFixed(1)}% di $${pos.coin}${rMult != null ? ` (${rMult.toFixed(2)}R)` : ''}`
       rt.state.thoughtAt = Date.now()
     }
 
@@ -737,8 +744,8 @@ export class Engine {
         if (this.streak >= this.nextStreakMilestone) {
           this.notify({
             kind: 'streak',
-            title: `Hot streak: ${this.streak} wins in a row`,
-            body: `${this.streak} wins across the crew · keep it rolling`,
+            title: `Panen beruntun: ${this.streak} menang berturut`,
+            body: `${this.streak} menang di seluruh crew · lanjut terus!`,
             bigValue: String(this.streak),
           })
           this.nextStreakMilestone =
@@ -753,8 +760,8 @@ export class Engine {
         this.notify({
           kind: 'bigwin',
           botKey: pos.botKey,
-          title: `${def.name} banked +${pnlPct.toFixed(0)}% on $${pos.coin}`,
-          body: `${reason} · ${pos.coin} · held ${((closedAt.getTime() - pos.openedAt) / 1000).toFixed(0)}s`,
+          title: `${def.name} panen +${pnlPct.toFixed(0)}% di $${pos.coin}`,
+          body: `${reason} · ${pos.coin} · tahan ${((closedAt.getTime() - pos.openedAt) / 1000).toFixed(0)}s`,
           bigValue: `+${pnlPct.toFixed(0)}%`,
         })
       }
@@ -871,8 +878,8 @@ export class Engine {
     if (sizeUsd < MIN_TRADE_USD) {
       rt.state.thought =
         riskSized.sizeUsd < MIN_TRADE_USD
-          ? `$${sig.coin}: risk budget too small for its stop`
-          : `$${sig.coin} too thin to trade safely`
+          ? `$${sig.coin}: anggaran risiko kekecilan untuk stop-nya`
+          : `$${sig.coin} terlalu tipis untuk trade aman`
       rt.state.thoughtAt = Date.now()
       rt.cooldownUntil = Date.now() + 60_000
       return false
@@ -893,7 +900,7 @@ export class Engine {
       if (!network || !this.settings.privateKey) return false
       qty = await roundQty(sig.coin, qty)
       if (qty <= 0 || qty * mid < 10) {
-        rt.state.thought = `$${sig.coin} order too small for the exchange`
+        rt.state.thought = `order $${sig.coin} terlalu kecil untuk exchange`
         rt.state.thoughtAt = Date.now()
         rt.cooldownUntil = Date.now() + 60_000
         return false
@@ -906,7 +913,7 @@ export class Engine {
         qty
       )
       if (!res.ok) {
-        rt.state.thought = `order rejected: ${res.error?.slice(0, 36) ?? 'exchange error'}`
+        rt.state.thought = `order ditolak: ${res.error?.slice(0, 36) ?? 'error exchange'}`
         rt.state.thoughtAt = Date.now()
         rt.cooldownUntil = Date.now() + 45_000
         return false
@@ -959,9 +966,9 @@ export class Engine {
     this.risk.reserve(row.id, { riskUsd, mode: this.settings.mode })
 
     const exitTag = plan.auto
-      ? `TP ${plan.tpPx.toFixed(2)}% · ${plan.regime}`
+      ? `TP ${plan.tpPx.toFixed(2)}% · ${REGIME_ID[plan.regime]}`
       : `TP ${plan.tpPx.toFixed(2)}%/SL ${plan.slPx.toFixed(2)}%`
-    rt.state.thought = `in $${sig.coin} · ${leverage}× · ${sig.reason} · ${exitTag}`
+    rt.state.thought = `beli $${sig.coin} · ${leverage}× · ${sig.reason} · ${exitTag}`
     rt.state.thoughtAt = Date.now()
     rt.lastActiveAt = Date.now()
     return true
@@ -998,8 +1005,8 @@ export class Engine {
       const wins = Object.values(this.botStats[this.settings.mode] ?? {}).reduce((a, s) => a + s.wins, 0)
       this.notify({
         kind: 'goal',
-        title: `Goal reached: ${this.settings.goalMultiple}×`,
-        body: `${Math.round(start).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} → ${Math.round(equity).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} · ${wins} wins across the crew`,
+        title: `Target tercapai: ${this.settings.goalMultiple}×`,
+        body: `${Math.round(start).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} → ${Math.round(equity).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} · ${wins} menang di seluruh crew`,
         bigValue: `${this.settings.goalMultiple}×`,
       })
     }
@@ -1160,7 +1167,7 @@ export class Engine {
       case 'closeAll': {
         const open = this.positions.filter((p) => p.mode === this.settings.mode)
         for (const pos of open) {
-          await this.closePosition(pos, 'manual close')
+          await this.closePosition(pos, 'tutup manual')
         }
         break
       }
@@ -1179,7 +1186,7 @@ export class Engine {
         for (const rt of this.bots.values()) {
           rt.cooldownUntil = 0
           rt.lastActiveAt = Date.now()
-          rt.state.thought = 'fresh start — scanning…'
+          rt.state.thought = 'mulai baru — memindai…'
           rt.state.thoughtAt = Date.now()
         }
         break
@@ -1188,7 +1195,7 @@ export class Engine {
         this.risk.reset()
         this.riskLatchNotified = false
         this.riskWarn80Notified = false
-        this.notify({ kind: 'info', title: 'Daily stop reset', body: 'Risk desk open — the crew may take new trades again.' })
+        this.notify({ kind: 'info', title: 'Daily stop direset', body: 'Meja risiko buka — crew boleh ambil trade baru lagi.' })
         break
       case 'seen':
         if (ids) for (const id of ids) this.unseenIds.delete(id)

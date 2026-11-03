@@ -61,7 +61,7 @@ function momentumSignal(market: MarketData, relax: number): Signal | null {
   const best = scored[0]
   if (!best) return null
   if (best.ret > 0.45 * relax && best.ratio > 1.4) {
-    return { coin: best.coin, reason: `buyers ${best.ratio.toFixed(1)}× sellers` }
+    return { coin: best.coin, reason: `pembeli ${best.ratio.toFixed(1)}× penjual` }
   }
   return null
 }
@@ -79,7 +79,7 @@ function sniperSignal(market: MarketData, relax: number): Signal | null {
   for (const s of scored) {
     const spreadOk = s.spread == null || s.spread < 0.09
     if (s.mid > s.high * (1 + 0.0002 * relax) && spreadOk) {
-      return { coin: s.coin, reason: 'broke 20m range high' }
+      return { coin: s.coin, reason: 'tembus high range 20m' }
     }
   }
   return null
@@ -97,7 +97,7 @@ function dipHunterSignal(market: MarketData, relax: number): Signal | null {
   const worst = scored[0]
   if (!worst) return null
   if (worst.rsi < 34 * (2 - relax) && worst.ret < -0.8 * relax) {
-    return { coin: worst.coin, reason: `RSI ${worst.rsi.toFixed(0)} dip` }
+    return { coin: worst.coin, reason: `dip RSI ${worst.rsi.toFixed(0)}` }
   }
   return null
 }
@@ -113,7 +113,7 @@ function whaleTailSignal(market: MarketData, relax: number): Signal | null {
   const best = scored[0]
   if (!best) return null
   if (best.ratio > 2.6 * (2 - relax)) {
-    return { coin: best.coin, reason: `whale prints ${best.ratio.toFixed(1)}× avg volume` }
+    return { coin: best.coin, reason: `whale ${best.ratio.toFixed(1)}× volume rata-rata` }
   }
   return null
 }
@@ -132,7 +132,7 @@ function scalperSignal(market: MarketData, relax: number): Signal | null {
     if (s.spread < 0.045 && s.imb > 1.5 - (1 - relax) * 0.3 && s.micro > -0.005) {
       return {
         coin: s.coin,
-        reason: `spread ${s.spread.toFixed(3)}% · bids stacked`,
+        reason: `spread ${s.spread.toFixed(3)}% · bid menumpuk`,
       }
     }
   }

@@ -159,25 +159,25 @@ export default function Home() {
               {state?.botName ?? 'Grok Bot'}
             </h1>
             <p className="text-[14px] font-bold text-[#8E8E93]">
-              Hyperliquid perps
+              Perp Hyperliquid
               {(state?.pairsCount ?? 0) > 0 && (
-                <span className="text-[#17171C]"> · {state?.pairsCount} pairs</span>
+                <span className="text-[#17171C]"> · {state?.pairsCount} pair</span>
               )}{' '}
-              · 5 agents
+              · 5 agen
             </p>
           </div>
           <div className="flex items-center gap-1.5">
             <button
               onClick={quickToggleRun}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-[#17171C] shadow-sm transition hover:scale-105 active:scale-95"
-              aria-label={state?.running ? 'Pause crew' : 'Resume crew'}
+              aria-label={state?.running ? 'Jeda crew' : 'Lanjutkan crew'}
             >
               {state?.running ? <Pause size={17} /> : <Play size={17} className="ml-0.5" />}
             </button>
             <button
               onClick={() => setSettingsOpen(true)}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-[#17171C] shadow-sm transition hover:scale-105 hover:rotate-45 active:scale-95"
-              aria-label="Settings"
+              aria-label="Pengaturan"
             >
               <Settings size={17} />
             </button>
@@ -204,12 +204,12 @@ export default function Home() {
         <section aria-label="Equity" className="reveal mt-4" style={{ animationDelay: '120ms' }}>
           <div className="mb-0.5 flex items-center gap-2">
             <p className="text-[14px] font-bold text-[#8E8E93]">
-              {isLive ? 'Account value' : 'Equity'} · started with{' '}
+              {isLive ? 'Nilai akun' : 'Equity'} · modal awal{' '}
               {fmtUsd(state?.startingEquity ?? 0, 0)}
             </p>
             {!state?.feedOk && state && (
               <span className="ml-auto flex items-center gap-1 text-[11px] font-bold text-[#B45309]">
-                <ShieldAlert size={12} /> demo feed
+                <ShieldAlert size={12} /> feed demo
               </span>
             )}
           </div>
@@ -273,19 +273,19 @@ export default function Home() {
               {state?.risk?.latched && (
                 <span
                   className="animate-badge-pop flex items-center gap-1 rounded-full bg-[#DC2626] px-2 py-[3px] text-[12px] font-black text-white shadow-sm"
-                  title="Daily loss stop hit — no new risk until reset"
+                  title="Daily loss stop kena — tanpa risiko baru sampai direset"
                 >
                   <ShieldAlert size={13} strokeWidth={2.6} aria-hidden />
-                  no-new-risk
+                  tanpa risiko baru
                 </span>
               )}
             </div>
             <p className="text-[14px] font-bold text-[#8E8E93]">
-              {state?.tradesClosed ?? 0} trades ·{' '}
+              {state?.tradesClosed ?? 0} trade ·{' '}
               {state && state.tradesClosed > 0
                 ? Math.round((state.wins / state.tradesClosed) * 100)
                 : 0}
-              % win
+              % menang
             </p>
           </div>
 
@@ -350,7 +350,7 @@ export default function Home() {
             Testnet <ArrowUpRight size={12} strokeWidth={2.6} aria-hidden />
           </a>
           <span className="flex items-center gap-1">
-            <BotAvatar face="happy" color="#2E90FA" size={16} /> powered by Hyperliquid
+            <BotAvatar face="happy" color="#2E90FA" size={16} /> didukung Hyperliquid
           </span>
         </div>
       </main>
@@ -359,9 +359,9 @@ export default function Home() {
       <footer className="mt-auto border-t border-black/5 bg-white/70 pb-[env(safe-area-inset-bottom)] backdrop-blur">
         <div className="mx-auto w-full max-w-[460px] px-4 py-3.5 text-center">
           <p className="text-[11px] font-bold leading-relaxed text-[#B4B4B9]">
-            SIM = paper money, real mainnet prices. TESTNET/MAINNET send real orders —
-            exchange minimum <span className="text-[#8E8E93]">$10</span> per order. Use an agent
-            wallet with limited funds. Not financial advice. DYOR.
+            SIM = uang kertas dengan harga mainnet nyata. TESTNET/MAINNET mengirim order
+            sungguhan — minimum exchange <span className="text-[#8E8E93]">$10</span> per order.
+            Pakai agent wallet dengan dana terbatas. Bukan saran finansial. DYOR.
           </p>
         </div>
       </footer>

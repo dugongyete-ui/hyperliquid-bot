@@ -20,18 +20,18 @@ export function GoalCard({ goal, multiple }: GoalCardProps) {
   return (
     <section className="rounded-[28px] bg-white p-5 shadow-[0_2px_16px_rgba(0,0,0,0.05)]">
       <div className="mb-5 flex items-baseline justify-between">
-        <h2 className="text-[22px] font-black tracking-tight">Goal: {goal}×</h2>
+        <h2 className="text-[22px] font-black tracking-tight">Target: {goal}×</h2>
         <p className="text-[14px] font-bold">
           {done ? (
             <span className="flex items-center gap-1 text-[#FF6B00]">
-              <Check size={15} strokeWidth={3.2} aria-hidden /> Done
+              <Check size={15} strokeWidth={3.2} aria-hidden /> Selesai
             </span>
           ) : (
             <span className="text-[#8E8E93]">
-              {fmtMult(Math.max(0, goal - multiple))} to go
+              kurang {fmtMult(Math.max(0, goal - multiple))}
             </span>
           )}
-          <span className="text-[#8E8E93]"> · {fmtMult(multiple)} now</span>
+          <span className="text-[#8E8E93]"> · sekarang {fmtMult(multiple)}</span>
         </p>
       </div>
 

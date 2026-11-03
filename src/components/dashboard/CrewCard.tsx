@@ -63,7 +63,7 @@ function AgentCard({
         setWiggle((w) => w + 1)
       }}
       role="button"
-      aria-label={`${bot.name} agent`}
+      aria-label={`agen ${bot.name}`}
     >
       {/* thought bubble — every new thought replays the CSS “speak” animation
           (pop in, linger, fade out), so the crew chats by itself. Tap to pin. */}
@@ -142,7 +142,7 @@ function AgentCard({
               onPickCoin(holding.coin)
             }}
             className="flex max-w-full items-center gap-1 overflow-hidden rounded-full bg-[#F2F3F5] py-[3px] pr-2 pl-[4px] transition hover:bg-black/[0.06] active:scale-95"
-            aria-label={`Open ${holding.coin} chart`}
+            aria-label={`Buka chart ${holding.coin}`}
           >
             <CoinIcon coin={holding.coin} size={14} className="shrink-0" />
             <span className="truncate text-[10.5px] font-extrabold tracking-tight">
@@ -151,15 +151,15 @@ function AgentCard({
           </button>
         ) : bot.status === 'cooling' ? (
           <span className="rounded-full bg-[#F2F3F5] px-2 py-[3px] text-[10.5px] font-extrabold text-[#8E8E93]">
-            cooling
+            istirahat
           </span>
         ) : bot.status === 'paused' ? (
           <span className="rounded-full bg-[#FEF3C7] px-2 py-[3px] text-[10.5px] font-extrabold text-[#B45309]">
-            paused
+            jeda
           </span>
         ) : (
           <span className="flex items-center gap-1 rounded-full bg-[#F2F3F5] px-2 py-[3px] text-[10.5px] font-extrabold text-[#8E8E93]">
-            scanning
+            memindai
             <span className="flex items-end gap-[2px] pb-[1px]" aria-hidden>
               <span className="scan-dot h-[3px] w-[3px] rounded-full bg-[#8E8E93]" />
               <span className="scan-dot h-[3px] w-[3px] rounded-full bg-[#8E8E93]" />
@@ -182,7 +182,7 @@ export function CrewCard({ crew, openCount, totalWins, onPickCoin }: CrewCardPro
       <div className="mb-1 flex items-baseline justify-between px-1">
         <h2 className="text-[21px] font-black tracking-tight">Crew</h2>
         <p className="text-[13px] font-semibold text-[#8E8E93]">
-          {openCount} holding · {totalWins} wins
+          {openCount} pegang · {totalWins} menang
         </p>
       </div>
       <div className="flex items-start justify-between gap-0.5">

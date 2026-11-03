@@ -18,7 +18,7 @@ interface Event {
   ts: number
   botName: string
   botColor: string
-  verb: 'bought' | 'sold'
+  verb: 'beli' | 'jual'
   coin: string
   detail: string
   pnl: number | null
@@ -34,7 +34,7 @@ function toEvents(trades: TradeRow[]): Event[] {
         ts: t.openedAt,
         botName: t.botName,
         botColor: t.botColor,
-        verb: 'bought',
+        verb: 'beli',
         coin: t.coin,
         detail: t.reason,
         pnl: null,
@@ -47,7 +47,7 @@ function toEvents(trades: TradeRow[]): Event[] {
         ts: t.closedAt,
         botName: t.botName,
         botColor: t.botColor,
-        verb: 'sold',
+        verb: 'jual',
         coin: t.coin,
         detail: t.exitReason ?? '',
         pnl: t.pnl,
@@ -72,13 +72,13 @@ export function ActivityCard({ trades, wins, losses, onPickCoin }: ActivityCardP
   const events = toEvents(trades)
   return (
     <section
-      aria-label="Activity"
+      aria-label="Aktivitas"
       className="rounded-[24px] bg-white p-5 shadow-[0_2px_16px_rgba(0,0,0,0.05)]"
     >
       <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="text-[21px] font-black tracking-tight">Activity</h2>
+        <h2 className="text-[21px] font-black tracking-tight">Aktivitas</h2>
         <p className="text-[13px] font-semibold text-[#8E8E93]">
-          {wins} wins · {losses} losses
+          {wins} menang · {losses} kalah
         </p>
       </div>
 
@@ -104,7 +104,7 @@ export function ActivityCard({ trades, wins, losses, onPickCoin }: ActivityCardP
                 <span className="font-extrabold" style={{ color: ev.botColor }}>
                   {ev.botName}
                 </span>{' '}
-                <span className={`font-extrabold ${ev.verb === 'bought' ? 'text-[#2E90FA]' : 'text-[#17171C]'}`}>
+                <span className={`font-extrabold ${ev.verb === 'beli' ? 'text-[#2E90FA]' : 'text-[#17171C]'}`}>
                   {ev.verb}
                 </span>{' '}
                 <button
@@ -113,16 +113,16 @@ export function ActivityCard({ trades, wins, losses, onPickCoin }: ActivityCardP
                 >
                   <CoinIcon coin={ev.coin} size={15} />${ev.coin}
                 </button>
-                {ev.verb === 'bought' && (
-                  <span className="text-[#8E8E93]"> · {ev.detail || 'signal fired'}</span>
+                {ev.verb === 'beli' && (
+                  <span className="text-[#8E8E93]"> · {ev.detail || 'sinyal muncul'}</span>
                 )}
-                {ev.verb === 'sold' && ev.pnl != null && (
+                {ev.verb === 'jual' && ev.pnl != null && (
                   <span className={ev.pnl >= 0 ? 'font-extrabold text-[#22C55E]' : 'font-extrabold text-[#EF4444]'}>
                     {' '}
                     {fmtSmartUsd(ev.pnl)} ({(ev.pnlPct ?? 0).toFixed(1)}%)
                   </span>
                 )}
-                {ev.verb === 'sold' && ev.detail && (
+                {ev.verb === 'jual' && ev.detail && (
                   <span className="text-[#8E8E93]"> · {ev.detail}</span>
                 )}
               </p>
@@ -135,7 +135,7 @@ export function ActivityCard({ trades, wins, losses, onPickCoin }: ActivityCardP
               <BotAvatar face="sparkle" color="#C7C7CC" size={44} status="scanning" />
             </div>
             <p className="text-center text-[13px] font-semibold text-[#B4B4B9]">
-              The floor just opened — the crew is sniffing the market
+              Lantai baru saja dibuka — crew sedang mengendus pasar
               <span className="ml-1 inline-flex items-end gap-[2px] pb-[1px]" aria-hidden>
                 <span className="scan-dot h-[3px] w-[3px] rounded-full bg-[#B4B4B9]" />
                 <span className="scan-dot h-[3px] w-[3px] rounded-full bg-[#B4B4B9]" />

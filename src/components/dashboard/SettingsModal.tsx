@@ -44,21 +44,21 @@ const MODES: {
     key: 'sim',
     name: 'SIM',
     desc: 'Latihan dengan uang kertas · harga live Hyperliquid mainnet',
-    tag: 'Paper money',
+    tag: 'Uang kertas',
     color: '#17171C',
   },
   {
     key: 'testnet',
     name: 'TESTNET',
     desc: 'Order nyata · dana virtual · app.hyperliquid-testnet.xyz',
-    tag: 'Fake money',
+    tag: 'Uang palsu',
     color: '#22B8CF',
   },
   {
     key: 'mainnet',
     name: 'MAINNET',
     desc: 'Order nyata · dana sungguhan · app.hyperliquid.xyz',
-    tag: 'Real funds',
+    tag: 'Dana nyata',
     color: '#FF4D00',
   },
 ]
@@ -176,7 +176,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="nice-scroll max-h-[85vh] max-w-[440px] overflow-y-auto rounded-[28px] p-6">
         <DialogHeader>
-          <DialogTitle className="text-[22px] font-black tracking-tight">Crew Settings</DialogTitle>
+          <DialogTitle className="text-[22px] font-black tracking-tight">Pengaturan Crew</DialogTitle>
           <DialogDescription className="text-[13px] font-semibold">
             Atur mode, modal, leverage, dan gaya trading.
           </DialogDescription>
@@ -333,7 +333,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
           {autoExit ? (
             <>
               <p className="mt-1.5 text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
-                <span className="font-extrabold text-[#17171C]">OTOMATIS (adaptive)</span> — bot
+                <span className="font-extrabold text-[#17171C]">OTOMATIS (adaptif)</span> — bot
                 menghitung TP/SL per coin dari volatilitas live (ATR) dan rezim market:
                 trending → target dilebar (profit dip biarkan jalan), ranging → diperketat
                 (profit diambil cepat sebelum balik arah).
@@ -352,11 +352,11 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
                     <span className="text-[12px] font-black">${s.coin}</span>
                     {s.regime === 'trending' ? (
                       <span className="flex items-center gap-1 rounded-md bg-[#DCFCE7] px-1.5 py-0.5 text-[10.5px] font-black text-[#15803D]">
-                        <TrendingUp size={11} strokeWidth={2.6} aria-hidden /> TRENDING
+                        <TrendingUp size={11} strokeWidth={2.6} aria-hidden /> TREN
                       </span>
                     ) : s.regime === 'ranging' ? (
                       <span className="flex items-center gap-1 rounded-md bg-[#ECECEE] px-1.5 py-0.5 text-[10.5px] font-black text-[#636366]">
-                        <MoveHorizontal size={11} strokeWidth={2.6} aria-hidden /> RANGING
+                        <MoveHorizontal size={11} strokeWidth={2.6} aria-hidden /> SIDEWAYS
                       </span>
                     ) : (
                       <span className="rounded-md bg-[#ECECEE] px-1.5 py-0.5 text-[10.5px] font-black text-[#636366]">
@@ -369,8 +369,8 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
                   </div>
                 ))}
                 <p className="text-[10.5px] font-semibold leading-snug text-[#B4B4B9]">
-                  Preview live — angka nyata yang akan dipakai bot sekarang untuk 4 coin volume
-                  terbesar. Angka final dihitung ulang saat entry (ikut kondisi terkini).
+                  Pratinjau langsung — angka nyata yang akan dipakai bot sekarang untuk 4 coin
+                  volume terbesar. Angka final dihitung ulang saat entry (ikut kondisi terkini).
                 </p>
               </div>
             </>
@@ -519,8 +519,8 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
           {state?.risk?.latched && (
             <div className="mt-3 rounded-xl bg-[#FEF2F2] px-3 py-2.5">
               <p className="text-[11.5px] font-extrabold text-[#DC2626]">
-                LATCHED: no-new-risk ({state.risk.latchedReason}). Tombol "Reset daily stop"
-                di bawah untuk buka lagi.
+                TERKUNCI: tanpa risiko baru ({state.risk.latchedReason}). Tombol "Reset stop
+                harian" di bawah untuk buka lagi.
               </p>
             </div>
           )}
@@ -532,7 +532,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
               onClick={() => action('resetDailyStop')}
               className="mt-3 h-10 w-full rounded-xl text-[12.5px] font-extrabold"
             >
-              Reset daily stop
+              Reset stop harian
             </Button>
           )}
 
@@ -667,7 +667,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
             onClick={() => action(state?.running ? 'pause' : 'resume')}
             className="h-10 rounded-xl text-[12.5px] font-extrabold"
           >
-            {state?.running ? 'Pause' : 'Resume'}
+            {state?.running ? 'Jeda' : 'Lanjut'}
           </Button>
           <Button
             variant="outline"
@@ -675,7 +675,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
             onClick={() => action('closeAll')}
             className="h-10 rounded-xl text-[12.5px] font-extrabold"
           >
-            Close all
+            Tutup semua
           </Button>
           <Button
             variant="outline"

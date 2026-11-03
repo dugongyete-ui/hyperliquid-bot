@@ -25,9 +25,9 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
   return (
     <section className="rounded-[28px] bg-white p-5 shadow-[0_2px_16px_rgba(0,0,0,0.05)]">
       <div className="mb-1 flex items-baseline justify-between">
-        <h2 className="text-[22px] font-black tracking-tight">Trades</h2>
+        <h2 className="text-[22px] font-black tracking-tight">Trade</h2>
         <p className="text-[13px] font-semibold text-[#8E8E93]">
-          {wins} wins · {losses} losses
+          {wins} menang · {losses} kalah
         </p>
       </div>
 
@@ -35,10 +35,10 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
         <div className="flex flex-col items-center gap-2 py-8 text-center">
           <Bot size={34} strokeWidth={1.8} className="text-[#C7C7CC]" aria-hidden />
           <p className="text-[14px] font-bold text-[#8E8E93]">
-            The crew is scanning the market…
+            Crew sedang memindai pasar…
           </p>
           <p className="text-[12px] font-semibold text-[#B4B4B9]">
-            Trades will appear here the moment a bot spots something.
+            Trade akan muncul di sini begitu ada bot menemukan peluang.
           </p>
         </div>
       ) : (
@@ -50,7 +50,7 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
                 onClick={() => onPickCoin(t.coin)}
                 className="flex cursor-pointer items-center gap-3 py-2.5 transition hover:bg-black/[0.025] active:scale-[0.99]"
                 role="button"
-                aria-label={`Open ${t.coin} chart`}
+                aria-label={`Buka chart ${t.coin}`}
               >
                 <CoinBadge
                   coin={t.coin}
@@ -63,11 +63,11 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
                   <p className="truncate text-[12.5px] font-semibold text-[#8E8E93]">
                     {t.status === 'open' ? (
                       <>
-                        {t.botName} in · {fmtSizeUsd(t.sizeUsd)} · {t.reason}
+                        {t.botName} beli · {fmtSizeUsd(t.sizeUsd)} · {t.reason}
                       </>
                     ) : (
                       <>
-                        {t.botName} · {t.exitReason} · held {t.heldSec != null ? fmtHeld(t.heldSec) : '—'}
+                        {t.botName} · {t.exitReason} · tahan {t.heldSec != null ? fmtHeld(t.heldSec) : '—'}
                       </>
                     )}
                   </p>

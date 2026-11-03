@@ -241,20 +241,20 @@ export class RiskLedger {
     const budgetUsd = (equity * this.limits.maxRiskPct) / 100
 
     if (this.latched) {
-      return { ok: false, reason: `no-new-risk: ${this.latchedReason}`, budgetUsd }
+      return { ok: false, reason: `tanpa risiko baru: ${this.latchedReason}`, budgetUsd }
     }
     const usage = this.dailyStopUsage(equity)
     if (usage >= 1) {
       this.latched = true
-      this.latchedReason = 'daily loss stop'
-      return { ok: false, reason: 'no-new-risk: daily loss stop', budgetUsd }
+      this.latchedReason = 'stop rugi harian'
+      return { ok: false, reason: 'tanpa risiko baru: stop rugi harian', budgetUsd }
     }
     const limitUsd = (equity * this.limits.maxTotalRiskPct) / 100
     const after = this.openRiskUsd(mode) + Math.max(0, candidateRiskUsd)
     if (after > limitUsd) {
       return {
         ok: false,
-        reason: `total open risk full (${this.openRiskUsd(mode).toFixed(0)}+${candidateRiskUsd.toFixed(0)} > ${limitUsd.toFixed(0)})`,
+        reason: `risiko terbuka penuh (${this.openRiskUsd(mode).toFixed(0)}+${candidateRiskUsd.toFixed(0)} > ${limitUsd.toFixed(0)})`,
         budgetUsd,
       }
     }

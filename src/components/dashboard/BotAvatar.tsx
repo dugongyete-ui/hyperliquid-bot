@@ -48,7 +48,7 @@ export function BotAvatar({
       viewBox="0 0 120 116"
       className={wrapper.trim()}
       role="img"
-      aria-label="Cute robot avatar"
+      aria-label="Avatar robot lucu"
     >
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
@@ -148,7 +148,7 @@ export function HeadBotAvatar({ size = 56, className }: { size?: number; classNa
       viewBox="0 0 100 100"
       className={`bot-alive ${className ?? ''}`}
       role="img"
-      aria-label="Bot app icon"
+      aria-label="Ikon aplikasi bot"
     >
       <defs>
         <linearGradient id="headbot-g" x1="0" y1="0" x2="1" y2="1">
