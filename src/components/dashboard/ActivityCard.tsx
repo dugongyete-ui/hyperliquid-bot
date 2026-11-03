@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import type { TradeRow } from '@/lib/shared-types'
 import { fmtSmartUsd } from '@/lib/format'
 import { CoinIcon } from './CoinIcon'
+import { BotAvatar } from './BotAvatar'
 
 interface ActivityCardProps {
   trades: TradeRow[]
@@ -129,9 +130,19 @@ export function ActivityCard({ trades, wins, losses, onPickCoin }: ActivityCardP
           ))}
         </AnimatePresence>
         {events.length === 0 && (
-          <p className="py-6 text-center text-[13px] font-semibold text-[#B4B4B9]">
-            The floor just opened — waiting for the first signal…
-          </p>
+          <div className="flex flex-col items-center gap-2 py-7">
+            <div className="animate-breathe">
+              <BotAvatar face="sparkle" color="#C7C7CC" size={44} status="scanning" />
+            </div>
+            <p className="text-center text-[13px] font-semibold text-[#B4B4B9]">
+              The floor just opened — the crew is sniffing the market
+              <span className="ml-1 inline-flex items-end gap-[2px] pb-[1px]" aria-hidden>
+                <span className="scan-dot h-[3px] w-[3px] rounded-full bg-[#B4B4B9]" />
+                <span className="scan-dot h-[3px] w-[3px] rounded-full bg-[#B4B4B9]" />
+                <span className="scan-dot h-[3px] w-[3px] rounded-full bg-[#B4B4B9]" />
+              </span>
+            </p>
+          </div>
         )}
       </div>
     </section>

@@ -1,7 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useEffect, useRef, useState } from 'react'
 import type { CrewBotState } from '@/lib/shared-types'
 import { fmtPct, fmtSmartUsd } from '@/lib/format'
 import type { FaceVariant } from './BotAvatar'
@@ -33,8 +32,21 @@ function AgentCard({
   onPickCoin: (coin: string) => void
 }) {
   const [showThought, setShowThought] = useState(false)
+  const [wiggle, setWiggle] = useState(0)
   const holding = bot.status === 'holding' ? bot.holding : null
   const face = FACE_BY_KEY[bot.key] ?? 'happy'
+  const pinned = showThought && !!bot.thought
+  // chatter engine: when the bot thinks something NEW the bubble pops for a
+  // few seconds (pure CSS .auto-bubble). The mount thought stays silent so
+  // five bots don't all greet at once — speech only follows real thinking.
+  const [spoken, setSpoken] = useState<string | null>(null)
+  const seen = useRef(bot.thought)
+  useEffect(() => {
+    if (seen.current === bot.thought) return
+    seen.current = bot.thought
+    const t = setTimeout(() => setSpoken(bot.thought), 10)
+    return () => clearTimeout(t)
+  }, [bot.thought])
 
   const bubblePos =
     align === 'left'
@@ -45,35 +57,38 @@ function AgentCard({
 
   return (
     <div
-      className="relative flex min-w-0 flex-1 cursor-pointer flex-col items-center"
-      onClick={() => setShowThought((v) => !v)}
+      className="group relative flex min-w-0 flex-1 cursor-pointer flex-col items-center transition-transform duration-300 hover:-translate-y-0.5"
+      onClick={() => {
+        setShowThought((v) => !v)
+        setWiggle((w) => w + 1)
+      }}
       role="button"
       aria-label={`${bot.name} agent`}
     >
-      {/* thought bubble — tap any bot to hear what it is thinking */}
-      <AnimatePresence>
-        {showThought && bot.thought && (
-          <motion.div
-            initial={{ opacity: 0, y: 6, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 4, scale: 0.94 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 26 }}
-            className={`absolute -top-7 z-30 w-44 ${bubblePos}`}
-          >
-            <div className="relative rounded-2xl bg-[#17171C] px-3 py-2 shadow-xl">
-              <p className="text-center text-[11px] leading-snug font-bold">
-                <span style={{ color: bot.color }}>{bot.name}</span>{' '}
-                <span className="text-white/90">{bot.thought}</span>
-              </p>
-              <div
-                className={`absolute -bottom-[5px] h-2.5 w-2.5 rotate-45 rounded-[2px] bg-[#17171C] ${
-                  align === 'left' ? 'left-5' : align === 'right' ? 'right-5' : 'left-1/2 -translate-x-1/2'
-                }`}
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* thought bubble — every new thought replays the CSS “speak” animation
+          (pop in, linger, fade out), so the crew chats by itself. Tap to pin. */}
+      <div
+        key={pinned ? 'pinned' : spoken === bot.thought ? bot.thought : 'idle'}
+        className={`absolute -top-7 z-30 w-44 ${bubblePos} ${
+          pinned
+            ? 'animate-bubble-pop'
+            : spoken === bot.thought && bot.thought
+              ? 'auto-bubble'
+              : 'invisible'
+        }`}
+      >
+        <div className="relative rounded-2xl bg-[#17171C] px-3 py-2 shadow-xl">
+          <p className="text-center text-[11px] leading-snug font-bold">
+            <span style={{ color: bot.color }}>{bot.name}</span>{' '}
+            <span className="text-white/90">{bot.thought}</span>
+          </p>
+          <div
+            className={`absolute -bottom-[5px] h-2.5 w-2.5 rotate-45 rounded-[2px] bg-[#17171C] ${
+              align === 'left' ? 'left-5' : align === 'right' ? 'right-5' : 'left-1/2 -translate-x-1/2'
+            }`}
+          />
+        </div>
+      </div>
 
       {/* live pnl badge floating above the head while holding (like the reference) */}
       <div className="flex h-[24px] items-end justify-center pb-0.5">
@@ -89,15 +104,18 @@ function AgentCard({
         )}
       </div>
 
-      {/* the cute robot itself — blinks, looks around, hops when winning */}
-      <BotAvatar
-        face={face}
-        color={bot.color}
-        size={66}
-        breathe
-        status={bot.status}
-        pnlPct={holding?.pnlPct ?? 0}
-      />
+      {/* the cute robot itself — blinks, looks around, hops when winning,
+          wiggles when tapped */}
+      <div key={wiggle} className={wiggle > 0 ? 'animate-wiggle' : undefined}>
+        <BotAvatar
+          face={face}
+          color={bot.color}
+          size={66}
+          breathe
+          status={bot.status}
+          pnlPct={holding?.pnlPct ?? 0}
+        />
+      </div>
 
       <p className="mt-1.5 max-w-full truncate px-0.5 text-[10.5px] font-black tracking-tight sm:text-[11px]">
         {bot.name}
@@ -140,8 +158,13 @@ function AgentCard({
             paused
           </span>
         ) : (
-          <span className="animate-soft-pulse rounded-full bg-[#F2F3F5] px-2 py-[3px] text-[10.5px] font-extrabold text-[#8E8E93]">
+          <span className="flex items-center gap-1 rounded-full bg-[#F2F3F5] px-2 py-[3px] text-[10.5px] font-extrabold text-[#8E8E93]">
             scanning
+            <span className="flex items-end gap-[2px] pb-[1px]" aria-hidden>
+              <span className="scan-dot h-[3px] w-[3px] rounded-full bg-[#8E8E93]" />
+              <span className="scan-dot h-[3px] w-[3px] rounded-full bg-[#8E8E93]" />
+              <span className="scan-dot h-[3px] w-[3px] rounded-full bg-[#8E8E93]" />
+            </span>
           </span>
         )}
       </div>

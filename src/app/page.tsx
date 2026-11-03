@@ -21,12 +21,37 @@ interface Floater {
   text: string
 }
 
+/** Smoothly tweens a number toward its target — the big equity figure ticks
+ *  like a real terminal instead of jumping between poll values. */
+function useTween(target: number, ms = 420): number {
+  const [val, setVal] = useState(target)
+  const valRef = useRef(target)
+  const rafRef = useRef(0)
+  useEffect(() => {
+    const from = valRef.current
+    const start = performance.now()
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / ms)
+      const eased = 1 - Math.pow(1 - t, 3)
+      const v = from + (target - from) * eased
+      valRef.current = v
+      setVal(v)
+      if (t < 1) rafRef.current = requestAnimationFrame(step)
+    }
+    cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [target, ms])
+  return val
+}
+
 export default function Home() {
   const [state, setState] = useState<EngineSnapshot | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [chartCoin, setChartCoin] = useState<string | null>(null)
   const [floaters, setFloaters] = useState<Floater[]>([])
   const [toasts, setToasts] = useState<NotificationRow[]>([])
+  const [eqFlash, setEqFlash] = useState<'' | 'eq-flash-up' | 'eq-flash-down'>('')
   const prevEquity = useRef<number | null>(null)
   const floaterId = useRef(0)
   const seenIdsRef = useRef<Set<string>>(new Set())
@@ -46,6 +71,12 @@ export default function Home() {
         const id = ++floaterId.current
         setFloaters((f) => [...f.slice(-2), { id, text: fmtSmartUsd(delta) }])
         setTimeout(() => setFloaters((f) => f.filter((x) => x.id !== id)), 2300)
+      }
+      // the big number takes a tiny green/red breath whenever it moves
+      if (prevEquity.current !== null && data.equity !== prevEquity.current) {
+        const dir = data.equity > prevEquity.current ? 'eq-flash-up' : 'eq-flash-down'
+        setEqFlash(dir)
+        setTimeout(() => setEqFlash((cur) => (cur === dir ? '' : cur)), 900)
       }
       prevEquity.current = data.equity
 
@@ -79,11 +110,21 @@ export default function Home() {
   }, [refresh])
 
   const equity = state?.equity ?? 0
-  const [eqInt, eqDec] = equity.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).split('.')
+  const tweened = useTween(equity)
+  const [eqInt, eqDec] = (state
+    ? tweened.toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    : '0.00'
+  ).split('.')
   const isLive = state?.mode === 'mainnet' || state?.mode === 'testnet'
+  const multKey = (state?.multiple ?? 1).toFixed(2)
+
+  // the tab title ticks with the account — alive even in the background
+  useEffect(() => {
+    if (state) document.title = `${fmtUsd(state.equity)} · ${state.botName}`
+  }, [state])
 
   const openChart = useCallback((coin: string) => {
     setChartCoin(coin.includes(':') ? coin : coin.toUpperCase())
@@ -100,14 +141,19 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#F2F3F5]">
+    <div className="dot-grid-bg flex min-h-screen flex-col bg-[#F2F3F5]">
       <IslandPill state={state} />
       <Toasts notifications={toasts} mode={state?.mode ?? 'sim'} />
 
       <main className="mx-auto w-full max-w-[460px] flex-1 px-4 pb-8 pt-16">
         {/* ---------- header ---------- */}
-        <header className="mb-3 flex items-center gap-3">
-          <HeadBotAvatar size={54} className="shrink-0 rounded-[16px] shadow-md" />
+        <header className="reveal mb-3 flex items-center gap-3">
+          <div className="shrink-0 rounded-[16px] shadow-md transition-transform duration-300 hover:-rotate-6 hover:scale-105">
+            <HeadBotAvatar
+              size={54}
+              className={state?.running === false ? '' : 'bot-look'}
+            />
+          </div>
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-[26px] font-black leading-tight tracking-tight">
               {state?.botName ?? 'Grok Bot'}
@@ -150,10 +196,12 @@ export default function Home() {
         </header>
 
         {/* ---------- live ticker ---------- */}
-        <TickerStrip ticker={state?.ticker ?? []} onPick={openChart} />
+        <div className="reveal" style={{ animationDelay: '60ms' }}>
+          <TickerStrip ticker={state?.ticker ?? []} onPick={openChart} />
+        </div>
 
         {/* ---------- equity block ---------- */}
-        <section aria-label="Equity" className="mt-4">
+        <section aria-label="Equity" className="reveal mt-4" style={{ animationDelay: '120ms' }}>
           <div className="mb-0.5 flex items-center gap-2">
             <p className="text-[14px] font-bold text-[#8E8E93]">
               {isLive ? 'Account value' : 'Equity'} · started with{' '}
@@ -168,7 +216,10 @@ export default function Home() {
 
           <div className="flex items-start justify-between">
             <div className="relative">
-              <p className="text-[58px] font-black leading-[1.05] tracking-tight">
+              <p
+                className={`text-[58px] font-black leading-[1.05] tracking-tight ${eqFlash}`}
+                aria-live="polite"
+              >
                 {state ? (
                   <>
                     ${eqInt}
@@ -191,7 +242,10 @@ export default function Home() {
               </div>
             </div>
 
-            <span className="mt-3 shrink-0 rounded-full bg-gradient-to-r from-[#2DD4BF] to-[#22C55E] px-3 py-1.5 text-[15px] font-black text-white shadow-md">
+            <span
+              key={multKey}
+              className="animate-badge-pop mt-3 shrink-0 rounded-full bg-gradient-to-r from-[#2DD4BF] to-[#22C55E] px-3 py-1.5 text-[15px] font-black text-white shadow-md"
+            >
               {(state?.multiple ?? 1).toFixed(2)}×
             </span>
           </div>
@@ -245,29 +299,40 @@ export default function Home() {
 
         {/* ---------- cards ---------- */}
         <div className="mt-4 space-y-3">
-          <CrewCard
-            crew={state?.crew ?? []}
-            openCount={state?.openCount ?? 0}
-            totalWins={state?.crew.reduce((a, b) => a + b.wins, 0) ?? 0}
-            onPickCoin={openChart}
-          />
-          <ActivityCard
-            trades={state?.trades ?? []}
-            wins={state?.wins ?? 0}
-            losses={state?.losses ?? 0}
-            onPickCoin={openChart}
-          />
-          <TradesCard
-            trades={state?.trades ?? []}
-            wins={state?.wins ?? 0}
-            losses={state?.losses ?? 0}
-            onPickCoin={openChart}
-          />
-          <GoalCard goal={state?.goal.target ?? 2} multiple={state?.multiple ?? 1} />
+          <div className="reveal" style={{ animationDelay: '200ms' }}>
+            <CrewCard
+              crew={state?.crew ?? []}
+              openCount={state?.openCount ?? 0}
+              totalWins={state?.crew.reduce((a, b) => a + b.wins, 0) ?? 0}
+              onPickCoin={openChart}
+            />
+          </div>
+          <div className="reveal" style={{ animationDelay: '280ms' }}>
+            <ActivityCard
+              trades={state?.trades ?? []}
+              wins={state?.wins ?? 0}
+              losses={state?.losses ?? 0}
+              onPickCoin={openChart}
+            />
+          </div>
+          <div className="reveal" style={{ animationDelay: '360ms' }}>
+            <TradesCard
+              trades={state?.trades ?? []}
+              wins={state?.wins ?? 0}
+              losses={state?.losses ?? 0}
+              onPickCoin={openChart}
+            />
+          </div>
+          <div className="reveal" style={{ animationDelay: '440ms' }}>
+            <GoalCard goal={state?.goal.target ?? 2} multiple={state?.multiple ?? 1} />
+          </div>
         </div>
 
         {/* network links */}
-        <div className="mt-4 flex items-center justify-center gap-2 text-[12px] font-bold text-[#8E8E93]">
+        <div
+          className="reveal mt-4 flex items-center justify-center gap-2 text-[12px] font-bold text-[#8E8E93]"
+          style={{ animationDelay: '520ms' }}
+        >
           <a
             href="https://app.hyperliquid.xyz"
             target="_blank"

@@ -34,7 +34,8 @@ export function IslandPill({ state }: { state: EngineSnapshot | null }) {
             />
           </span>
           <span
-            className={`text-[15px] font-extrabold tabular-nums tracking-tight ${up ? 'text-[#30D158]' : 'text-[#FF9F0A]'}`}
+            key={mult.toFixed(2)}
+            className={`animate-badge-pop text-[15px] font-extrabold tabular-nums tracking-tight ${up ? 'text-[#30D158]' : 'text-[#FF9F0A]'}`}
           >
             {fmtMult(mult)}
           </span>

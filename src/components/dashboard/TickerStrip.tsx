@@ -24,7 +24,10 @@ export function TickerStrip({
 
   const row = [...ticker, ...ticker] // seamless loop
   return (
-    <div className="ticker-hover overflow-hidden rounded-2xl bg-white shadow-sm" role="marquee">
+    <div
+      className="ticker-mask ticker-hover overflow-hidden rounded-2xl bg-white shadow-sm"
+      role="marquee"
+    >
       <div className="animate-ticker flex w-max items-center">
         {row.map((t, i) => {
           const up = t.changePct >= 0
@@ -32,7 +35,7 @@ export function TickerStrip({
             <button
               key={`${t.coin}-${i}`}
               onClick={() => onPick(t.coin)}
-              className="flex items-center gap-1.5 px-3 py-2.5 transition active:scale-95 aria-hover:hover:bg-black/[0.03]"
+              className="flex items-center gap-1.5 px-3 py-2.5 transition hover:bg-black/[0.03] active:scale-95"
               aria-label={`Open ${t.coin} chart`}
             >
               <CoinIcon coin={t.coin} size={18} />

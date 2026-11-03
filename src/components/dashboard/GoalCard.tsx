@@ -2,6 +2,7 @@
 
 import { Check } from 'lucide-react'
 import { fmtMult } from '@/lib/format'
+import { BotAvatar } from './BotAvatar'
 
 interface GoalCardProps {
   goal: number
@@ -22,7 +23,7 @@ export function GoalCard({ goal, multiple }: GoalCardProps) {
         <h2 className="text-[22px] font-black tracking-tight">Goal: {goal}×</h2>
         <p className="text-[14px] font-bold">
           {done ? (
-            <span className="flex items-center gap-1 text-[#2E6BFF]">
+            <span className="flex items-center gap-1 text-[#FF6B00]">
               <Check size={15} strokeWidth={3.2} aria-hidden /> Done
             </span>
           ) : (
@@ -35,12 +36,16 @@ export function GoalCard({ goal, multiple }: GoalCardProps) {
       </div>
 
       <div className="relative pb-12 pt-4">
-        {/* current multiple pill */}
+        {/* current multiple pill — the crew mascot rides along as you progress */}
         <div
           className="absolute top-0 z-10 -translate-x-1/2 transition-all duration-700 ease-out"
           style={{ left: `${nowPos}%` }}
         >
-          <span className="rounded-full bg-[#17171C] px-2.5 py-1 text-[12px] font-extrabold text-white shadow">
+          <span
+            key={fmtMult(multiple)}
+            className="animate-badge-pop flex items-center gap-1.5 rounded-full bg-[#17171C] py-1 pr-2.5 pl-1 text-[12px] font-extrabold text-white shadow"
+          >
+            <BotAvatar face={done ? 'happy' : 'smirk'} color="#3A3A42" size={18} />
             {fmtMult(multiple)}
           </span>
         </div>
@@ -61,20 +66,20 @@ export function GoalCard({ goal, multiple }: GoalCardProps) {
                 style={{ left: `${posOf(m)}%` }}
               >
                 <div
-                  className={`flex h-[22px] w-[22px] items-center justify-center rounded-full border-[3px] bg-white shadow-sm ${
+                  className={`flex h-[22px] w-[22px] items-center justify-center rounded-full border-[3px] bg-white shadow-sm transition-transform duration-300 hover:scale-125 ${
                     isGoal && !reached
-                      ? 'border-[#2E6BFF]'
+                      ? 'border-[#FF6B00]'
                       : reached
                         ? 'border-[#22C55E]'
                         : 'border-[#D6D6DB]'
                   }`}
                 >
-                  {reached && <div className="h-[7px] w-[7px] rounded-full bg-[#22C55E]" />}
+                  {reached && <div key={`m${m}`} className="animate-pop-check h-[7px] w-[7px] rounded-full bg-[#22C55E]" />}
                 </div>
                 <p
                   className={`absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[11.5px] font-extrabold ${
                     idx % 2 === 1 ? 'top-[46px]' : 'top-7'
-                  } ${isGoal ? 'text-[#2E6BFF]' : reached ? 'text-[#22C55E]' : 'text-[#8E8E93]'}`}
+                  } ${isGoal ? 'text-[#FF6B00]' : reached ? 'text-[#22C55E]' : 'text-[#8E8E93]'}`}
                 >
                   {m}×
                 </p>
