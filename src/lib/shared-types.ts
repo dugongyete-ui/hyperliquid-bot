@@ -68,6 +68,14 @@ export interface NotificationRow {
 
 export type RiskProfile = 'chill' | 'balanced' | 'turbo'
 
+/** live proof of the adaptive exit engine: what the engine would assign NOW */
+export interface RegimeSample {
+  coin: string
+  regime: 'trending' | 'ranging' | 'manual'
+  tpPct: number
+  slPct: number
+}
+
 /** HyperGrok desk risk state (reservation ledger + daily loss stop) */
 export interface RiskState {
   perTradePct: number
@@ -100,8 +108,12 @@ export interface EngineSnapshot {
   leverage: number
   positionPct: number
   riskProfile: RiskProfile
+  autoExit: boolean
+  tpPct: number
+  slPct: number
   risk: RiskState
   goal: { target: number; done: boolean }
+  regimeSamples: RegimeSample[]
   equityCurve: EquityPointRow[]
   crew: CrewBotState[]
   trades: TradeRow[]
@@ -120,6 +132,9 @@ export interface SettingsPayload {
   leverage?: number
   positionPct?: number
   riskProfile?: RiskProfile
+  autoExit?: boolean
+  tpPct?: number
+  slPct?: number
   maxRiskPct?: number
   maxTotalRiskPct?: number
   dailyLossStopPct?: number

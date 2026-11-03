@@ -17,6 +17,12 @@ model Settings {
   leverage        Int      @default(5) // 1-20× notional per trade
   positionPct     Float    @default(0.3) // fraction of equity used as margin per trade
   riskProfile     String   @default("balanced") // chill | balanced | turbo
+  // Adaptive exit engine: autoExit = TP/SL dihitung per-trade dari volatilitas
+  // live (ATR) + rezim market (trending → target dilebar, ranging → diperketat).
+  // autoExit = false → pakai tpPct / slPct tetap dari user.
+  autoExit        Boolean  @default(true)
+  tpPct           Float    @default(1.2) // manual take-profit % (dipakai saat autoExit = false)
+  slPct           Float    @default(0.6) // manual stop-loss %   (dipakai saat autoExit = false)
   // HyperGrok desk risk limits — user may only TIGHTEN, never exceed the hard ceilings
   maxRiskPct      Float    @default(1.0)  // max % of equity at risk per trade (ceiling 2)
   maxTotalRiskPct Float    @default(4.0)  // max % of equity at risk across all open positions (ceiling 6)

@@ -53,12 +53,16 @@ const PROFILES: Record<RiskProfile, { tpMul: number; slMul: number; timeStop: nu
 }
 
 /** Per-position exit plan in price-move % — derived from live volatility at
- * entry so a TP on calm BTC isn't the same distance as on FARTCOIN. */
+ * entry so a TP on calm BTC isn't the same distance as on FARTCOIN.
+ * regime: 'trending' (targets widened — let winners run) | 'ranging'
+ * (targets tightened — grab profit fast) | 'manual' (user-fixed TP/SL). */
 interface ExitPlan {
   tpPx: number
   slPx: number
   trailPx: number
   timeStopSec: number
+  regime: 'trending' | 'ranging' | 'manual'
+  auto: boolean
 }
 
 interface OpenPosition {
@@ -102,6 +106,11 @@ export interface EngineSettings {
   leverage: number
   positionPct: number
   riskProfile: RiskProfile
+  /** adaptive exit engine: TP/SL computed per-trade from live ATR + regime */
+  autoExit: boolean
+  /** manual fixed targets, used when autoExit = false */
+  tpPct: number
+  slPct: number
   maxRiskPct: number
   maxTotalRiskPct: number
   dailyLossStopPct: number
@@ -129,6 +138,9 @@ export class Engine {
     leverage: 5,
     positionPct: 0.3,
     riskProfile: 'balanced',
+    autoExit: true,
+    tpPct: 1.2,
+    slPct: 0.6,
     maxRiskPct: 1,
     maxTotalRiskPct: 4,
     dailyLossStopPct: 6,
@@ -173,6 +185,9 @@ export class Engine {
       leverage: s.leverage ?? 5,
       positionPct: s.positionPct ?? 0.3,
       riskProfile: (s.riskProfile as RiskProfile) ?? 'balanced',
+      autoExit: s.autoExit ?? true,
+      tpPct: s.tpPct ?? 1.2,
+      slPct: s.slPct ?? 0.6,
       maxRiskPct: s.maxRiskPct ?? 1,
       maxTotalRiskPct: s.maxTotalRiskPct ?? 4,
       dailyLossStopPct: s.dailyLossStopPct ?? 6,
@@ -358,24 +373,53 @@ export class Engine {
   }
 
   /**
-   * Volatility-aware exit plan (all numbers are price-move %):
-   *  - tp: how far the coin usually travels in the hold window (×1.7), capped
-   *    by the bot's own personality ceiling — so TPs are actually reachable
-   *  - sl: a bit over one “normal” adverse candle
-   *  - trail: generous fraction of tp so winners get room to run
-   *  - timeStop: profile-based ceiling — but only for positions that never
-   *    took off (see managePositions: winners never get timer-killed)
+   * Adaptive exit plan (all numbers are price-move %).
+   *
+   * AUTO (autoExit = true) — "target profit otomatis, ikut karakter market":
+   *  - base distance from live ATR (a TP on calm BTC ≠ FARTCOIN) scaled by the
+   *    hold-window horizon, capped by the bot's personality ceiling
+   *  - REGIME scaling via Kaufman ER (market.regime):
+   *      trending → TP ×1.45, trail ×1.2, timeStop ×1.5  (let winners run)
+   *      ranging  → TP ×0.78, trail ×0.72, timeStop ×0.8 (grab profit fast)
+   *  - stop distance stays pure-volatility — the disaster stop is not loosened
+   *    by a trend, and not tightened into chop whipsaw
+   *
+   * MANUAL (autoExit = false) — the user's fixed tpPct/slPct, trail = profile
+   * fraction of TP. Targets only, discipline identical.
    */
   private exitPlan(def: CrewDef, coin: string): ExitPlan {
     const prof = PROFILES[this.settings.riskProfile] ?? PROFILES.balanced
+    const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+
+    if (!this.settings.autoExit) {
+      const tp = clamp(this.settings.tpPct, 0.1, 30)
+      const sl = clamp(this.settings.slPct, 0.05, 15)
+      return {
+        tpPx: tp,
+        slPx: sl,
+        trailPx: Math.max(0.2, tp * prof.trailFrac),
+        timeStopSec: prof.timeStop,
+        regime: 'manual',
+        auto: false,
+      }
+    }
+
     const vol = this.market.atrPct(coin, 14) ?? 0.18 // % per 1m candle
     const horizon = Math.sqrt(prof.timeStop / 60) // diffusion-style time scaling
-    const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+    const reg = this.market.regime(coin)
+    const trending = reg?.kind === 'trending'
+    const tpReg = trending ? 1.45 : 0.78
+    const trailReg = trending ? 1.2 : 0.72
+    const timeReg = trending ? 1.5 : 0.8
+    const tpBase = clamp(1.7 * horizon * vol, 0.3, def.exit.tp * prof.tpMul)
+    const slBase = clamp(1.15 * horizon * vol, 0.18, def.exit.sl * prof.slMul)
     return {
-      tpPx: clamp(1.7 * horizon * vol, 0.3, def.exit.tp * prof.tpMul),
-      slPx: clamp(1.15 * horizon * vol, 0.18, def.exit.sl * prof.slMul),
-      trailPx: Math.max(0.22, prof.trailFrac * clamp(1.7 * horizon * vol, 0.3, def.exit.tp * prof.tpMul)),
-      timeStopSec: prof.timeStop,
+      tpPx: clamp(tpBase * tpReg, 0.2, def.exit.tp * prof.tpMul * 1.6),
+      slPx: slBase,
+      trailPx: Math.max(0.18, prof.trailFrac * tpBase * trailReg),
+      timeStopSec: Math.round(prof.timeStop * timeReg),
+      regime: reg ? reg.kind : 'ranging', // no candle data yet → conservative ranging
+      auto: true,
     }
   }
 
@@ -914,7 +958,10 @@ export class Engine {
     // reserve the stressed risk in the ledger the moment the position exists
     this.risk.reserve(row.id, { riskUsd, mode: this.settings.mode })
 
-    rt.state.thought = `in $${sig.coin} · ${leverage}× · ${sig.reason}`
+    const exitTag = plan.auto
+      ? `TP ${plan.tpPx.toFixed(2)}% · ${plan.regime}`
+      : `TP ${plan.tpPx.toFixed(2)}%/SL ${plan.slPx.toFixed(2)}%`
+    rt.state.thought = `in $${sig.coin} · ${leverage}× · ${sig.reason} · ${exitTag}`
     rt.state.thoughtAt = Date.now()
     rt.lastActiveAt = Date.now()
     return true
@@ -1002,6 +1049,9 @@ export class Engine {
     leverage?: number
     positionPct?: number
     riskProfile?: string
+    autoExit?: boolean
+    tpPct?: number
+    slPct?: number
     maxRiskPct?: number
     maxTotalRiskPct?: number
     dailyLossStopPct?: number
@@ -1042,6 +1092,10 @@ export class Engine {
     this.settings.leverage = Math.min(20, Math.max(1, Math.round(payload.leverage ?? this.settings.leverage)))
     this.settings.positionPct = Math.min(1, Math.max(0.05, payload.positionPct ?? this.settings.positionPct))
     this.settings.riskProfile = profile
+    // adaptive exit engine: auto (ATR + regime) or manual fixed targets
+    this.settings.autoExit = payload.autoExit ?? this.settings.autoExit
+    this.settings.tpPct = Math.min(30, Math.max(0.1, payload.tpPct ?? this.settings.tpPct))
+    this.settings.slPct = Math.min(15, Math.max(0.05, payload.slPct ?? this.settings.slPct))
     // risk limits: clamped INTO the hard ceilings — a config may only tighten
     const limits = clampLimits({
       maxRiskPct: payload.maxRiskPct ?? this.settings.maxRiskPct,
@@ -1077,6 +1131,9 @@ export class Engine {
           leverage: this.settings.leverage,
           positionPct: this.settings.positionPct,
           riskProfile: this.settings.riskProfile,
+          autoExit: this.settings.autoExit,
+          tpPct: this.settings.tpPct,
+          slPct: this.settings.slPct,
           maxRiskPct: this.settings.maxRiskPct,
           maxTotalRiskPct: this.settings.maxTotalRiskPct,
           dailyLossStopPct: this.settings.dailyLossStopPct,
@@ -1221,6 +1278,9 @@ export class Engine {
       leverage: this.settings.leverage,
       positionPct: this.settings.positionPct,
       riskProfile: this.settings.riskProfile,
+      autoExit: this.settings.autoExit,
+      tpPct: this.settings.tpPct,
+      slPct: this.settings.slPct,
       risk: {
         perTradePct: this.risk.limits.maxRiskPct,
         totalPct: this.risk.limits.maxTotalRiskPct,
@@ -1232,6 +1292,12 @@ export class Engine {
         latchedReason: this.risk.latchReason(),
       },
       goal: { target: this.settings.goalMultiple, done: equity / (start || 1) >= this.settings.goalMultiple },
+      // live proof that targets adapt to the market: top-volume coins, their
+      // current regime and the exact TP/SL the engine would assign right now
+      regimeSamples: this.market.ticker.slice(0, 4).map((t) => {
+        const plan = this.exitPlan(crewDef('momentum'), t.coin)
+        return { coin: t.coin, regime: plan.regime, tpPct: plan.tpPx, slPct: plan.slPx }
+      }),
       equityCurve,
       crew: [...this.bots.values()].map((rt) => {
         // a bot's live P&L = realized + its open position's unrealized P&L

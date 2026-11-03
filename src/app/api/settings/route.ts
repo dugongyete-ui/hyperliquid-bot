@@ -11,6 +11,9 @@ interface Body {
   leverage?: number
   positionPct?: number
   riskProfile?: string
+  autoExit?: boolean
+  tpPct?: number
+  slPct?: number
   maxRiskPct?: number
   maxTotalRiskPct?: number
   dailyLossStopPct?: number
@@ -30,6 +33,9 @@ export async function POST(req: Request) {
       leverage: body.leverage != null ? Number(body.leverage) : undefined,
       positionPct: body.positionPct != null ? Number(body.positionPct) : undefined,
       riskProfile: body.riskProfile,
+      autoExit: body.autoExit != null ? Boolean(body.autoExit) : undefined,
+      tpPct: body.tpPct != null ? Number(body.tpPct) : undefined,
+      slPct: body.slPct != null ? Number(body.slPct) : undefined,
       maxRiskPct: body.maxRiskPct != null ? Number(body.maxRiskPct) : undefined,
       maxTotalRiskPct: body.maxTotalRiskPct != null ? Number(body.maxTotalRiskPct) : undefined,
       dailyLossStopPct: body.dailyLossStopPct != null ? Number(body.dailyLossStopPct) : undefined,

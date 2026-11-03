@@ -13,7 +13,17 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
-import { AlertTriangle, Gauge, Layers, ShieldAlert, Zap } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import {
+  AlertTriangle,
+  Gauge,
+  Layers,
+  MoveHorizontal,
+  ShieldAlert,
+  Target,
+  TrendingUp,
+  Zap,
+} from 'lucide-react'
 import type { EngineSnapshot, RiskProfile, TradeMode } from '@/lib/shared-types'
 
 interface SettingsModalProps {
@@ -67,6 +77,9 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
   const [leverage, setLeverage] = useState(5)
   const [positionPct, setPositionPct] = useState(30)
   const [riskProfile, setRiskProfile] = useState<RiskProfile>('balanced')
+  const [autoExit, setAutoExit] = useState(true)
+  const [tpPct, setTpPct] = useState('1.2')
+  const [slPct, setSlPct] = useState('0.6')
   const [maxRiskPct, setMaxRiskPct] = useState(1)
   const [maxTotalRiskPct, setMaxTotalRiskPct] = useState(4)
   const [dailyLossStopPct, setDailyLossStopPct] = useState(6)
@@ -89,6 +102,9 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
       setLeverage(state.leverage ?? 5)
       setPositionPct(Math.round((state.positionPct ?? 0.3) * 100))
       setRiskProfile(state.riskProfile ?? 'balanced')
+      setAutoExit(state.autoExit ?? true)
+      setTpPct(String(state.tpPct ?? 1.2))
+      setSlPct(String(state.slPct ?? 0.6))
       setMaxRiskPct(state.risk?.perTradePct ?? 1)
       setMaxTotalRiskPct(state.risk?.totalPct ?? 4)
       setDailyLossStopPct(state.risk?.dailyStopPct ?? 6)
@@ -120,6 +136,9 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
           leverage,
           positionPct: positionPct / 100,
           riskProfile,
+          autoExit,
+          tpPct: Number(tpPct) || 1.2,
+          slPct: Number(slPct) || 0.6,
           maxRiskPct,
           maxTotalRiskPct,
           dailyLossStopPct,
@@ -296,6 +315,109 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
               per trade aktif ({leverage}× × {positionPct}% modal).
             </p>
           </div>
+        </div>
+
+        {/* ---------- adaptive take profit ---------- */}
+        <div className="mt-4 rounded-2xl border-2 border-[#ECECEE] p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-[13px] font-black tracking-tight">
+              <Target size={15} strokeWidth={2.4} aria-hidden /> Target profit
+            </p>
+            <Switch
+              checked={autoExit}
+              onCheckedChange={setAutoExit}
+              aria-label="Target profit otomatis"
+            />
+          </div>
+
+          {autoExit ? (
+            <>
+              <p className="mt-1.5 text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+                <span className="font-extrabold text-[#17171C]">OTOMATIS (adaptive)</span> — bot
+                menghitung TP/SL per coin dari volatilitas live (ATR) dan rezim market:
+                trending → target dilebar (profit dip biarkan jalan), ranging → diperketat
+                (profit diambil cepat sebelum balik arah).
+              </p>
+              <div className="mt-3 space-y-1.5">
+                {(state?.regimeSamples ?? []).length === 0 && (
+                  <p className="rounded-xl bg-[#F2F2F4] px-3 py-2 text-[11.5px] font-bold text-[#8E8E93]">
+                    Mengukur rezim market…
+                  </p>
+                )}
+                {(state?.regimeSamples ?? []).map((s) => (
+                  <div
+                    key={s.coin}
+                    className="flex items-center gap-2 rounded-xl bg-[#F2F2F4] px-3 py-2"
+                  >
+                    <span className="text-[12px] font-black">${s.coin}</span>
+                    {s.regime === 'trending' ? (
+                      <span className="flex items-center gap-1 rounded-md bg-[#DCFCE7] px-1.5 py-0.5 text-[10.5px] font-black text-[#15803D]">
+                        <TrendingUp size={11} strokeWidth={2.6} aria-hidden /> TRENDING
+                      </span>
+                    ) : s.regime === 'ranging' ? (
+                      <span className="flex items-center gap-1 rounded-md bg-[#ECECEE] px-1.5 py-0.5 text-[10.5px] font-black text-[#636366]">
+                        <MoveHorizontal size={11} strokeWidth={2.6} aria-hidden /> RANGING
+                      </span>
+                    ) : (
+                      <span className="rounded-md bg-[#ECECEE] px-1.5 py-0.5 text-[10.5px] font-black text-[#636366]">
+                        MANUAL
+                      </span>
+                    )}
+                    <span className="ml-auto text-[11.5px] font-extrabold tabular-nums text-[#3C3C43]">
+                      TP ≈ {s.tpPct.toFixed(2)}% · SL ≈ {s.slPct.toFixed(2)}%
+                    </span>
+                  </div>
+                ))}
+                <p className="text-[10.5px] font-semibold leading-snug text-[#B4B4B9]">
+                  Preview live — angka nyata yang akan dipakai bot sekarang untuk 4 coin volume
+                  terbesar. Angka final dihitung ulang saat entry (ikut kondisi terkini).
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-1.5 text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+                <span className="font-extrabold text-[#17171C]">MANUAL</span> — semua trade pakai
+                target tetap di bawah. Disiplin exit (trailing, time stop) tetap jalan.
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="tpp" className="text-[12px] font-extrabold">
+                    Take profit %
+                  </Label>
+                  <Input
+                    id="tpp"
+                    type="number"
+                    min={0.1}
+                    max={30}
+                    step={0.1}
+                    value={tpPct}
+                    onChange={(e) => setTpPct(e.target.value)}
+                    className="h-10 rounded-xl border-[#ECECEE] text-[14px] font-extrabold"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="slp" className="text-[12px] font-extrabold">
+                    Stop loss %
+                  </Label>
+                  <Input
+                    id="slp"
+                    type="number"
+                    min={0.05}
+                    max={15}
+                    step={0.05}
+                    value={slPct}
+                    onChange={(e) => setSlPct(e.target.value)}
+                    className="h-10 rounded-xl border-[#ECECEE] text-[14px] font-extrabold"
+                  />
+                </div>
+              </div>
+              <p className="mt-2 text-[10.5px] font-semibold leading-snug text-[#B4B4B9]">
+                Trailing stop = 40% dari TP (ikut gaya trading). Catatan: sizing tetap dihitung
+                dari stop — SL terlalu lebar mengecilkan ukuran posisi otomatis.
+              </p>
+            </>
+          )}
         </div>
 
         {/* ---------- desk risk limits (HyperGrok) ---------- */}

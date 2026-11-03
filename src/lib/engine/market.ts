@@ -388,4 +388,28 @@ export class MarketData {
     const atr = (sum / (win.length - 1)) * 100
     return isFinite(atr) && atr > 0 ? atr : null
   }
+
+  /**
+   * Market regime via Kaufman Efficiency Ratio over the last n 1m closes:
+   *   ER = |net move| / Σ|every 1m move|   ∈ [0..1]
+   * ER high  → price travels efficiently in ONE direction → TRENDING
+   * ER low   → choppy back-and-forth                     → RANGING
+   * The adaptive exit engine widens take-profits in trends (let winners run)
+   * and tightens them in ranges (grab profit before it mean-reverts).
+   */
+  regime(coin: string, n = 30): { kind: 'trending' | 'ranging'; er: number; up: boolean } | null {
+    const cs = this.candles.get(coin)
+    if (!cs || cs.length < n + 1) return null
+    const closes = cs.slice(-(n + 1)).map((c) => c.c)
+    const net = Math.abs(closes[closes.length - 1] - closes[0])
+    let path = 0
+    for (let i = 1; i < closes.length; i++) path += Math.abs(closes[i] - closes[i - 1])
+    if (path <= 0) return null
+    const er = net / path
+    return {
+      kind: er >= 0.3 ? 'trending' : 'ranging',
+      er,
+      up: closes[closes.length - 1] >= closes[0],
+    }
+  }
 }
