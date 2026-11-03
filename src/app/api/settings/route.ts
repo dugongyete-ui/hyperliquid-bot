@@ -11,6 +11,9 @@ interface Body {
   leverage?: number
   positionPct?: number
   riskProfile?: string
+  maxRiskPct?: number
+  maxTotalRiskPct?: number
+  dailyLossStopPct?: number
   privateKey?: string
   walletAddress?: string
 }
@@ -27,6 +30,9 @@ export async function POST(req: Request) {
       leverage: body.leverage != null ? Number(body.leverage) : undefined,
       positionPct: body.positionPct != null ? Number(body.positionPct) : undefined,
       riskProfile: body.riskProfile,
+      maxRiskPct: body.maxRiskPct != null ? Number(body.maxRiskPct) : undefined,
+      maxTotalRiskPct: body.maxTotalRiskPct != null ? Number(body.maxTotalRiskPct) : undefined,
+      dailyLossStopPct: body.dailyLossStopPct != null ? Number(body.dailyLossStopPct) : undefined,
       privateKey: body.privateKey,
       walletAddress: body.walletAddress,
     })

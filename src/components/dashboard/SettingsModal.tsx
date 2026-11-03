@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
-import { AlertTriangle, Gauge, Layers, Zap } from 'lucide-react'
+import { AlertTriangle, Gauge, Layers, ShieldAlert, Zap } from 'lucide-react'
 import type { EngineSnapshot, RiskProfile, TradeMode } from '@/lib/shared-types'
 
 interface SettingsModalProps {
@@ -67,6 +67,9 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
   const [leverage, setLeverage] = useState(5)
   const [positionPct, setPositionPct] = useState(30)
   const [riskProfile, setRiskProfile] = useState<RiskProfile>('balanced')
+  const [maxRiskPct, setMaxRiskPct] = useState(1)
+  const [maxTotalRiskPct, setMaxTotalRiskPct] = useState(4)
+  const [dailyLossStopPct, setDailyLossStopPct] = useState(6)
   const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
   const [saving, setSaving] = useState(false)
@@ -86,6 +89,9 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
       setLeverage(state.leverage ?? 5)
       setPositionPct(Math.round((state.positionPct ?? 0.3) * 100))
       setRiskProfile(state.riskProfile ?? 'balanced')
+      setMaxRiskPct(state.risk?.perTradePct ?? 1)
+      setMaxTotalRiskPct(state.risk?.totalPct ?? 4)
+      setDailyLossStopPct(state.risk?.dailyStopPct ?? 6)
       setWalletAddress(state.walletAddress ?? '')
       setPrivateKey('')
       setError(null)
@@ -114,6 +120,9 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
           leverage,
           positionPct: positionPct / 100,
           riskProfile,
+          maxRiskPct,
+          maxTotalRiskPct,
+          dailyLossStopPct,
           privateKey: privateKey.trim() || undefined,
           walletAddress: walletAddress.trim() || undefined,
         }),
@@ -130,7 +139,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
     }
   }
 
-  async function action(kind: 'pause' | 'resume' | 'closeAll' | 'resetSim') {
+  async function action(kind: 'pause' | 'resume' | 'closeAll' | 'resetSim' | 'resetDailyStop') {
     setBusyAction(kind)
     try {
       await fetch('/api/control', {
@@ -287,6 +296,128 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
               per trade aktif ({leverage}× × {positionPct}% modal).
             </p>
           </div>
+        </div>
+
+        {/* ---------- desk risk limits (HyperGrok) ---------- */}
+        <div className="mt-4 rounded-2xl border-2 border-[#ECECEE] p-4">
+          <p className="flex items-center gap-1.5 text-[13px] font-black tracking-tight">
+            <ShieldAlert size={15} strokeWidth={2.4} aria-hidden /> Risk Desk — batas kerugian
+          </p>
+          <p className="mt-1 text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+            Ukuran trade dihitung dari stop ("the stop defines the size"): slippage + fee
+            dua kaki dihitung, jadi loss riil saat stop kena tidak melebihi anggaran.
+          </p>
+
+          {/* risk per trade */}
+          <div className="mt-3.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="rp" className="text-[12px] font-extrabold">
+                Risiko per trade
+              </Label>
+              <span className="rounded-lg bg-[#F2F2F4] px-2 py-0.5 text-[13px] font-black tabular-nums">
+                {maxRiskPct.toFixed(1)}%
+              </span>
+            </div>
+            <Slider
+              id="rp"
+              min={0.1}
+              max={2}
+              step={0.1}
+              value={[maxRiskPct]}
+              onValueChange={(v) => setMaxRiskPct(v[0] ?? 1)}
+              aria-label="Risiko per trade"
+            />
+            <p className="text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+              Maks ≈ ${(((state?.equity ?? 1000) * maxRiskPct) / 100).toFixed(2)} hilang jika stop kena
+              (dari equity sekarang).
+            </p>
+          </div>
+
+          {/* total open risk */}
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="tr" className="text-[12px] font-extrabold">
+                Total risiko terbuka
+              </Label>
+              <span className="rounded-lg bg-[#F2F2F4] px-2 py-0.5 text-[13px] font-black tabular-nums">
+                {maxTotalRiskPct.toFixed(1)}%
+              </span>
+            </div>
+            <Slider
+              id="tr"
+              min={0.5}
+              max={6}
+              step={0.5}
+              value={[maxTotalRiskPct]}
+              onValueChange={(v) => setMaxTotalRiskPct(v[0] ?? 4)}
+              aria-label="Total risiko terbuka"
+            />
+            <p className="text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+              Gabungan seluruh posisi aktif. Penuh → ticket baru ditolak
+              (reservasi dihitung, bukan cuma posisi).
+            </p>
+          </div>
+
+          {/* daily loss stop */}
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="ds" className="text-[12px] font-extrabold">
+                Daily loss stop
+              </Label>
+              <span className="rounded-lg bg-[#F2F2F4] px-2 py-0.5 text-[13px] font-black tabular-nums">
+                −{dailyLossStopPct.toFixed(1)}%
+              </span>
+            </div>
+            <Slider
+              id="ds"
+              min={1}
+              max={10}
+              step={0.5}
+              value={[dailyLossStopPct]}
+              onValueChange={(v) => setDailyLossStopPct(v[0] ?? 6)}
+              aria-label="Daily loss stop"
+            />
+            <p className="text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+              Kalau equity hari ini turun {dailyLossStopPct.toFixed(1)}%, bot MEMASANG "no-new-risk":
+              entry baru berhenti, exit &amp; proteksi tetap jalan. Reset manual di bawah.
+            </p>
+          </div>
+
+          {/* live usage */}
+          {state?.risk && (
+            <div className="mt-3.5 rounded-xl bg-[#F2F2F4] px-3 py-2.5">
+              <p className="text-[11.5px] font-bold leading-snug text-[#3C3C43]">
+                Terpakai sekarang: ${state.risk.openRiskUsd.toFixed(2)} risiko terbuka
+                ({state.risk.openRiskPct.toFixed(2)}% dari limit {state.risk.totalPct}%) ·
+                daily stop {Math.round(state.risk.dailyStopUsage * 100)}% terpakai
+              </p>
+            </div>
+          )}
+
+          {state?.risk?.latched && (
+            <div className="mt-3 rounded-xl bg-[#FEF2F2] px-3 py-2.5">
+              <p className="text-[11.5px] font-extrabold text-[#DC2626]">
+                LATCHED: no-new-risk ({state.risk.latchedReason}). Tombol "Reset daily stop"
+                di bawah untuk buka lagi.
+              </p>
+            </div>
+          )}
+
+          {state?.risk?.latched && (
+            <Button
+              variant="outline"
+              disabled={busyAction !== null}
+              onClick={() => action('resetDailyStop')}
+              className="mt-3 h-10 w-full rounded-xl text-[12.5px] font-extrabold"
+            >
+              Reset daily stop
+            </Button>
+          )}
+
+          <p className="mt-3 text-[10.5px] font-semibold leading-snug text-[#B4B4B9]">
+            Ceiling keras (tidak bisa dilewati): 2% per trade · 6% total terbuka · 10% daily stop ·
+            maks 2 posisi per cluster correlated (majors/memes/L1/DeFi).
+          </p>
         </div>
 
         {isLive && (

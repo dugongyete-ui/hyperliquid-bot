@@ -108,6 +108,11 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
                         }`}
                       >
                         {fmtPct(t.pnlPct, Math.abs(t.pnlPct) < 1 ? 2 : 1)}
+                        {t.riskUsd > 0 && (
+                          <span className="ml-1 text-[#8E8E93]">
+                            · {(t.pnl / t.riskUsd).toFixed(2)}R
+                          </span>
+                        )}
                       </p>
                     </>
                   )}

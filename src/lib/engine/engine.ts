@@ -7,6 +7,14 @@ import { CREW, crewDef, type CrewDef } from './crew'
 import { MarketData } from './market'
 import { evaluateSignal, type Signal } from './strategies'
 import {
+  CEILINGS,
+  RiskLedger,
+  clampLimits,
+  clusterOf,
+  stressedRiskOfPosition,
+  stressedStopSize,
+} from './risk'
+import {
   liveAccountState,
   liveMarketClose,
   liveMarketOpen,
@@ -63,6 +71,8 @@ interface OpenPosition {
   peakPct: number
   lastPnlPct: number
   lastPnlUsd: number // exchange-authoritative unrealized P&L (live modes)
+  /** $ a stressed stop hit costs (slippage + taker both legs) — ledger reservation */
+  riskUsd: number
   openedAt: number
   mode: TradeMode
   reason: string
@@ -92,6 +102,9 @@ export interface EngineSettings {
   leverage: number
   positionPct: number
   riskProfile: RiskProfile
+  maxRiskPct: number
+  maxTotalRiskPct: number
+  dailyLossStopPct: number
   privateKey: string | null
   walletAddress: string | null
   liveStartEquity: number | null
@@ -104,6 +117,10 @@ function rand(min: number, max: number): number {
 
 export class Engine {
   market = new MarketData()
+  /** HyperGrok desk risk ledger — reservation accounting + daily loss stop */
+  risk = new RiskLedger()
+  private riskLatchNotified = false
+  private riskWarn80Notified = false
   settings: EngineSettings = {
     mode: 'sim',
     botName: 'Grok Bot',
@@ -112,6 +129,9 @@ export class Engine {
     leverage: 5,
     positionPct: 0.3,
     riskProfile: 'balanced',
+    maxRiskPct: 1,
+    maxTotalRiskPct: 4,
+    dailyLossStopPct: 6,
     privateKey: null,
     walletAddress: null,
     liveStartEquity: null,
@@ -153,11 +173,21 @@ export class Engine {
       leverage: s.leverage ?? 5,
       positionPct: s.positionPct ?? 0.3,
       riskProfile: (s.riskProfile as RiskProfile) ?? 'balanced',
+      maxRiskPct: s.maxRiskPct ?? 1,
+      maxTotalRiskPct: s.maxTotalRiskPct ?? 4,
+      dailyLossStopPct: s.dailyLossStopPct ?? 6,
       privateKey: s.privateKey,
       walletAddress: s.walletAddress,
       liveStartEquity: s.liveStartEquity,
       running: s.running,
     }
+    this.risk.setLimits(
+      clampLimits({
+        maxRiskPct: this.settings.maxRiskPct,
+        maxTotalRiskPct: this.settings.maxTotalRiskPct,
+        dailyLossStopPct: this.settings.dailyLossStopPct,
+      })
+    )
 
     // init bot runtimes
     for (const def of CREW) {
@@ -202,22 +232,27 @@ export class Engine {
 
     // hydrate open trades → positions
     const open = await db.trade.findMany({ where: { status: 'open' } })
-    this.positions = open.map((t) => ({
-      tradeId: t.id,
-      botKey: t.botKey as BotKey,
-      coin: t.coin,
-      qty: t.qty,
-      sizeUsd: t.sizeUsd,
-      entryPx: t.entryPx,
-      peakPct: 0,
-      lastPnlPct: 0,
-      lastPnlUsd: 0,
-      openedAt: t.openedAt.getTime(),
-      mode: t.mode as TradeMode,
-      reason: t.reason,
-      adopted: false,
-      plan: this.exitPlan(crewDef(t.botKey as BotKey), t.coin),
-    }))
+    this.positions = open.map((t) => {
+      const plan = this.exitPlan(crewDef(t.botKey as BotKey), t.coin)
+      return {
+        tradeId: t.id,
+        botKey: t.botKey as BotKey,
+        coin: t.coin,
+        qty: t.qty,
+        sizeUsd: t.sizeUsd,
+        entryPx: t.entryPx,
+        peakPct: 0,
+        lastPnlPct: 0,
+        lastPnlUsd: 0,
+        riskUsd: t.riskUsd || stressedRiskOfPosition(t.sizeUsd, t.entryPx, plan.slPx),
+        openedAt: t.openedAt.getTime(),
+        mode: t.mode as TradeMode,
+        reason: t.reason,
+        adopted: false,
+        plan,
+      }
+    })
+    this.rebuildLedger()
 
     // equity points for current mode
     await this.reloadEquityPoints()
@@ -245,6 +280,7 @@ export class Engine {
       exitPx: number | null
       pnl: number
       pnlPct: number
+      riskUsd: number
       status: string
       reason: string
       exitReason: string | null
@@ -265,6 +301,7 @@ export class Engine {
       exitPx: t.exitPx,
       pnl: t.pnl,
       pnlPct: t.pnlPct,
+      riskUsd: t.riskUsd,
       status: t.status as 'open' | 'closed',
       reason: t.reason,
       exitReason: t.exitReason,
@@ -398,6 +435,32 @@ export class Engine {
     )
     await this.market.update()
 
+    // ---- desk risk watchdog (three-state: fine / warning / latched) ----
+    const modeEquity = this.currentEquity()
+    this.risk.observeDay(modeEquity, now)
+    if (this.risk.isLatched() && !this.riskLatchNotified) {
+      this.riskLatchNotified = true
+      this.notify({
+        kind: 'error',
+        title: 'Daily loss stop hit — no new risk',
+        body: `Down ${Math.abs(this.risk.dailyLossPct(modeEquity)).toFixed(1)}% today. Exits & protection still run; new entries pause until you reset the stop.`,
+      })
+    }
+    if (!this.risk.isLatched() && this.riskLatchNotified) {
+      this.riskLatchNotified = false
+      this.notify({ kind: 'info', title: 'Risk desk open again', body: 'Daily stop reset — the crew may take new trades.' })
+    }
+    const usage = this.risk.dailyStopUsage(modeEquity)
+    if (usage >= 0.8 && usage < 1 && !this.riskWarn80Notified) {
+      this.riskWarn80Notified = true
+      this.notify({
+        kind: 'info',
+        title: 'Approaching daily loss stop',
+        body: `${Math.round(usage * 100)}% of the −${this.risk.limits.dailyLossStopPct}% daily stop used. Exits stay active; entries thin out.`,
+      })
+    }
+    if (usage < 0.8) this.riskWarn80Notified = false
+
     if (this.settings.mode !== 'sim') {
       if (now - this.lastLiveSyncAt > 10_000) {
         await this.syncLive()
@@ -467,12 +530,16 @@ export class Engine {
         peakPct: Math.max(0, p.unrealizedPnl / (p.positionValue || 1)) * 100,
         lastPnlPct: p.positionValue > 0 ? (p.unrealizedPnl / p.positionValue) * 100 : 0,
         lastPnlUsd: p.unrealizedPnl,
+        riskUsd: 0, // re-derived below from the live plan
         openedAt: Date.now(),
         mode: this.settings.mode,
         reason: 'adopted existing position',
         adopted: true,
         plan: this.exitPlan(idleBot.def, p.coin),
       })
+      const adopted = this.positions[this.positions.length - 1]
+      adopted.riskUsd = stressedRiskOfPosition(sizeUsd, p.entryPx, adopted.plan.slPx)
+      this.risk.reserve(row.id, { riskUsd: adopted.riskUsd, mode: this.settings.mode })
       idleBot.state.thought = `adopted $${p.coin} from the exchange`
       idleBot.state.thoughtAt = Date.now()
     }
@@ -574,8 +641,12 @@ export class Engine {
 
   private async finalizeClose(pos: OpenPosition, reason: string, exitPx: number | null, pnl: number) {
     this.positions = this.positions.filter((p) => p.tradeId !== pos.tradeId)
+    this.risk.release(pos.tradeId)
     const def = crewDef(pos.botKey)
     const pnlPct = pos.sizeUsd > 0 ? (pnl / pos.sizeUsd) * 100 : 0
+    // R-multiple: result measured against the risk actually budgeted at entry
+    // (desk-post-trade-review: grade the trade in R, not in vibes)
+    const rMult = pos.riskUsd > 0 ? pnl / pos.riskUsd : null
     const closedAt = new Date()
 
     await db.trade
@@ -610,8 +681,8 @@ export class Engine {
       rt.state.thought = isScratch
         ? `flat on $${pos.coin} · ${reason}`
         : pnl >= 0
-          ? `banked +${pnlPct.toFixed(1)}% on $${pos.coin}`
-          : `cut ${pnlPct.toFixed(1)}% on $${pos.coin}`
+          ? `banked +${pnlPct.toFixed(1)}% on $${pos.coin}${rMult != null ? ` (+${rMult.toFixed(2)}R)` : ''}`
+          : `cut ${pnlPct.toFixed(1)}% on $${pos.coin}${rMult != null ? ` (${rMult.toFixed(2)}R)` : ''}`
       rt.state.thoughtAt = Date.now()
     }
 
@@ -658,6 +729,7 @@ export class Engine {
       exitPx,
       pnl,
       pnlPct,
+      riskUsd: pos.riskUsd,
       status: 'closed',
       reason: pos.reason,
       exitReason: reason,
@@ -673,9 +745,19 @@ export class Engine {
 
   private async tryEntries(now: number) {
     if (!this.settings.running || !this.market.feedOk) return
+    // three-state monitoring: a stale feed is UNAVAILABLE, never a quiet all-clear
+    if (now - this.market.lastUpdateAt > 15_000) return
+    const equity = this.currentEquity()
     const openForMode = this.positions.filter((p) => p.mode === this.settings.mode)
     if (openForMode.length >= MAX_OPEN) return
     const heldCoins = new Set(openForMode.map((p) => p.coin))
+
+    // correlated-cluster caps: majors/memes/l1s/defi are each ONE risk
+    const clusterCount = new Map<string, number>()
+    for (const p of openForMode) {
+      const c = clusterOf(p.coin)
+      clusterCount.set(c, (clusterCount.get(c) ?? 0) + 1)
+    }
 
     const bots = [...this.bots.values()].sort(() => Math.random() - 0.5)
     for (const rt of bots) {
@@ -688,9 +770,24 @@ export class Engine {
       const sig = evaluateSignal(rt.def, this.market, bored)
       if (!sig || heldCoins.has(sig.coin)) continue
 
+      // cluster gate — the book is risked as a whole, not per-trade
+      const cl = clusterOf(sig.coin)
+      if ((clusterCount.get(cl) ?? 0) >= CEILINGS.maxPerCluster) {
+        continue
+      }
+
+      // reservation gate — open + pending + candidate share one budget
+      const maxCandidate = (equity * this.risk.limits.maxRiskPct) / 100
+      const gate = this.risk.canOpen(equity, this.settings.mode, maxCandidate)
+      if (!gate.ok) {
+        if (this.risk.isLatched()) break // whole desk paused — stop asking
+        continue
+      }
+
       const ok = await this.openPosition(rt, sig)
       if (ok) {
         heldCoins.add(sig.coin)
+        clusterCount.set(cl, (clusterCount.get(cl) ?? 0) + 1)
         openForMode.push(this.positions[this.positions.length - 1])
       }
     }
@@ -698,31 +795,51 @@ export class Engine {
 
   private async openPosition(rt: BotRuntime, sig: Signal): Promise<boolean> {
     const equity = this.currentEquity()
-    // margin = slice of equity, notional = margin × leverage → the $ P&L the
-    // UI shows finally matches the price move (1% move at 5× on 30% margin
-    // ≈ +1.5% equity instead of the invisible +0.3% at 1×)
-    const margin = Math.min(equity, Math.max(5, equity * this.settings.positionPct))
-    // respect the exchange's per-coin max leverage (BTC 40×, majors 20-25×,
-    // some alts only 3-5×) — never fight the market rules
-    const maxLev = this.market.maxLeverageOf(sig.coin)
-    const leverage = Math.min(20, maxLev, Math.max(1, Math.round(this.settings.leverage)))
-    let sizeUsd = Math.min(25000, Math.max(MIN_TRADE_USD, margin * leverage))
-    // liquidity guard: never take more than ~0.1% of the coin's 24h volume so
-    // entries AND exits stay cheap even on thin markets
-    const vol24 = this.market.volumeUsd24h(sig.coin)
-    if (vol24 > 0 && sizeUsd > vol24 * 0.001) {
-      sizeUsd = Math.floor(vol24 * 0.001)
-    }
-    if (sizeUsd < MIN_TRADE_USD) {
-      rt.state.thought = `$${sig.coin} too thin to trade safely`
-      rt.state.thoughtAt = Date.now()
-      rt.cooldownUntil = Date.now() + 60_000
-      return false
-    }
     const mid = this.market.mid(sig.coin)
     if (mid == null || mid <= 0) return false
 
     const plan = this.exitPlan(rt.def, sig.coin)
+    const spread = this.market.spreadPct(sig.coin)
+
+    // ---- HyperGrok stressed-stop sizing: THE STOP DEFINES THE SIZE ----
+    // notional sized so a stop hit (slipped fill + taker fees on both legs)
+    // costs ≈ maxRiskPct of equity — never sized from margin or hope
+    const riskSized = stressedStopSize({
+      equity,
+      maxRiskPct: this.risk.limits.maxRiskPct,
+      entryPx: mid,
+      stopPct: plan.slPx,
+      spreadPct: spread,
+    })
+    let sizeUsd = riskSized.sizeUsd
+
+    // exposure ceilings on top of the risk-based size:
+    // user's margin × leverage cap, per-coin exchange max leverage is about
+    // MARGIN rules (not sizing), liquidity cap, exchange sanity cap
+    const margin = Math.min(equity, Math.max(5, equity * this.settings.positionPct))
+    const maxLev = this.market.maxLeverageOf(sig.coin)
+    const leverage = Math.min(20, maxLev, Math.max(1, Math.round(this.settings.leverage)))
+    const exposureCap = margin * leverage
+    const vol24 = this.market.volumeUsd24h(sig.coin)
+    const liqCap = vol24 > 0 ? Math.floor(vol24 * 0.001) : 25000
+    sizeUsd = Math.min(sizeUsd, exposureCap, liqCap, 25000)
+
+    if (sizeUsd < MIN_TRADE_USD) {
+      rt.state.thought =
+        riskSized.sizeUsd < MIN_TRADE_USD
+          ? `$${sig.coin}: risk budget too small for its stop`
+          : `$${sig.coin} too thin to trade safely`
+      rt.state.thoughtAt = Date.now()
+      rt.cooldownUntil = Date.now() + 60_000
+      return false
+    }
+
+    // actual stressed risk after caps (may be smaller than the budget — fine,
+    // a trade may risk LESS than allowed, never more)
+    const riskUsd = Math.min(
+      stressedRiskOfPosition(sizeUsd, mid, plan.slPx, spread),
+      (equity * this.risk.limits.maxRiskPct) / 100
+    )
 
     let qty = sizeUsd / mid
     let entryPx = mid
@@ -764,6 +881,7 @@ export class Engine {
           sizeUsd,
           qty,
           entryPx,
+          riskUsd,
           status: 'open',
           reason,
         },
@@ -786,12 +904,15 @@ export class Engine {
       entryPx,
       peakPct: 0,
       lastPnlPct: 0,
+      riskUsd,
       openedAt: Date.now(),
       mode: this.settings.mode,
       reason,
       adopted: false,
       plan,
     })
+    // reserve the stressed risk in the ledger the moment the position exists
+    this.risk.reserve(row.id, { riskUsd, mode: this.settings.mode })
 
     rt.state.thought = `in $${sig.coin} · ${leverage}× · ${sig.reason}`
     rt.state.thoughtAt = Date.now()
@@ -881,6 +1002,9 @@ export class Engine {
     leverage?: number
     positionPct?: number
     riskProfile?: string
+    maxRiskPct?: number
+    maxTotalRiskPct?: number
+    dailyLossStopPct?: number
     privateKey?: string
     walletAddress?: string
   }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -918,6 +1042,16 @@ export class Engine {
     this.settings.leverage = Math.min(20, Math.max(1, Math.round(payload.leverage ?? this.settings.leverage)))
     this.settings.positionPct = Math.min(1, Math.max(0.05, payload.positionPct ?? this.settings.positionPct))
     this.settings.riskProfile = profile
+    // risk limits: clamped INTO the hard ceilings — a config may only tighten
+    const limits = clampLimits({
+      maxRiskPct: payload.maxRiskPct ?? this.settings.maxRiskPct,
+      maxTotalRiskPct: payload.maxTotalRiskPct ?? this.settings.maxTotalRiskPct,
+      dailyLossStopPct: payload.dailyLossStopPct ?? this.settings.dailyLossStopPct,
+    })
+    this.settings.maxRiskPct = limits.maxRiskPct
+    this.settings.maxTotalRiskPct = limits.maxTotalRiskPct
+    this.settings.dailyLossStopPct = limits.dailyLossStopPct
+    this.risk.setLimits(limits)
     this.settings.privateKey = privateKey
     this.settings.walletAddress = walletAddress ?? null
 
@@ -943,6 +1077,9 @@ export class Engine {
           leverage: this.settings.leverage,
           positionPct: this.settings.positionPct,
           riskProfile: this.settings.riskProfile,
+          maxRiskPct: this.settings.maxRiskPct,
+          maxTotalRiskPct: this.settings.maxTotalRiskPct,
+          dailyLossStopPct: this.settings.dailyLossStopPct,
           privateKey,
           walletAddress: this.settings.walletAddress,
           liveStartEquity: this.settings.liveStartEquity,
@@ -979,6 +1116,8 @@ export class Engine {
         this.equityPoints = []
         this.streak = 0
         this.goalNotified = false
+        this.rebuildLedger()
+        this.risk.reset() // a fresh SIM start also clears the daily latch
         this.refreshCrewFromStats()
         for (const rt of this.bots.values()) {
           rt.cooldownUntil = 0
@@ -988,9 +1127,26 @@ export class Engine {
         }
         break
       }
+      case 'resetDailyStop':
+        this.risk.reset()
+        this.riskLatchNotified = false
+        this.riskWarn80Notified = false
+        this.notify({ kind: 'info', title: 'Daily stop reset', body: 'Risk desk open — the crew may take new trades again.' })
+        break
       case 'seen':
         if (ids) for (const id of ids) this.unseenIds.delete(id)
         break
+    }
+  }
+
+  /** rebuild ledger reservations from live positions (after init/reset/close-all) */
+  private rebuildLedger() {
+    this.risk.clear()
+    for (const p of this.positions) {
+      const riskUsd =
+        p.riskUsd > 0 ? p.riskUsd : stressedRiskOfPosition(p.sizeUsd, p.entryPx, p.plan.slPx)
+      p.riskUsd = riskUsd
+      this.risk.reserve(p.tradeId, { riskUsd, mode: p.mode })
     }
   }
 
@@ -1025,6 +1181,7 @@ export class Engine {
           exitPx: null,
           pnl: u.pnl,
           pnlPct: u.pnlPct,
+          riskUsd: p.riskUsd,
           status: 'open' as const,
           reason: p.reason,
           exitReason: null,
@@ -1064,6 +1221,16 @@ export class Engine {
       leverage: this.settings.leverage,
       positionPct: this.settings.positionPct,
       riskProfile: this.settings.riskProfile,
+      risk: {
+        perTradePct: this.risk.limits.maxRiskPct,
+        totalPct: this.risk.limits.maxTotalRiskPct,
+        dailyStopPct: this.risk.limits.dailyLossStopPct,
+        openRiskUsd: this.risk.openRiskUsd(mode),
+        openRiskPct: this.risk.openRiskPct(equity, mode),
+        dailyStopUsage: this.risk.dailyStopUsage(equity),
+        latched: this.risk.isLatched(),
+        latchedReason: this.risk.latchReason(),
+      },
       goal: { target: this.settings.goalMultiple, done: equity / (start || 1) >= this.settings.goalMultiple },
       equityCurve,
       crew: [...this.bots.values()].map((rt) => {

@@ -1,0 +1,187 @@
+# Changelog
+
+## Unreleased
+
++ Publish and independently inspect the 1.7.1 native Grok Bot template on a new share. The 1.7.0 share keeps installing 1.7.0.
++ Refresh the public fork review: 61 listed repositories, 59 accessible, 73 branches, two new heads. Ignore environment files and local desk state in clones, as forks suggested. Decline to name a third-party weekend reference in the market-data skill. No instruction file changed.
+
+## 1.7.1 - 2026-11-01
+
++ Explain HIP-3 equity readings while the underlying market is closed: distinguish API price references from an official close, pair mark/oracle divergence with liquidity, retain DEX identity and hourly funding history, and preserve zero versus unavailable external rates. Keep observations separate from executable prices and return claims.
++ Refresh release pins and skill hashes. The native Grok Bot share remains on its independently verified 1.7.0 bootstrap pending an authorized native update; direct pinned and package installs carry this release.
+
++ Open the README with release, npm, licence and ecosystem-map badges and animated SVGs generated from `assets/src/build_graphics.py`: an isometric trading floor where a ticket moves from the analysts through risk and your approval to the single writer and Hyperliquid, and a stage diagram lit on the same loop. Both stop under reduced motion, embed their fonts and have stacked phone versions. The banner reads "Your trading desk, fully staffed." Fold the Opening Bell automation and research-history detail into expandable sections.
+
+## 1.7.0 - 2026-10-25
+
++ Simplify onboarding across the README, setup, role profiles and five runtime guides. Show a real dated Opening Bell capture, put the worked ticket beside its example, and document each runtime's actual roles, rules and hook support. Add release-watching, Discussions and contribution routes with community guidelines.
++ Recheck the current official Python SDK 0.24.0 and TypeScript SDK 0.33.3. Pin reviewed installations in a persistent Python virtual environment and local TypeScript project. Correct native ESM Decimal imports, account fee modifiers, account-mode capacity, history pagination and request weights.
++ Fix close-position IOC examples to preserve approved price bounds with Decimal input and directional rounding. Require the correct account mapping and unexpired named-agent approval in the readiness example. Offline regressions exercise both paths without signing or sending.
++ Describe stressed stop costs as assumptions and clarify that the daily loss stop pauses new risk rather than capping losses on existing positions. Numeric ceilings and ticket controls are unchanged.
++ Refresh the public fork review: 43 listed forks, 42 accessible, 51 branches. Record inaccessible content explicitly. Release automation contributed by forks is already integrated; broker ports and simulated strategy products remain outside this desk.
++ Publish and independently inspect the refreshed native Grok Bot template. Retain its publishing Bot so future releases can update the share.
++ Include the release-pin helper and its regression suite, contributed through the fork network and hardened in upstream review. Sync release manifests, bootstrap and skill hashes together.
+
+
++ Add `scripts/stop_cost.py`, a zero-key check of what a stop really costs. It sizes one trade on the drawn stop and on the desk's stressed stop (`desk-risk-limits` section 2.2) and prints what a triggered stop would cost each way. Stop slippage is the largest of a 10 bps floor, the current spread and the live book's impact for the drawn-stop size; fees are charged at the taker rate on both legs, as the desk does. A book read that does not hold the size is reported as a floor with the budget unproven. It reproduces ticket `HG-20260816-01`, reads only public `/info`, and shares the Opening Bell's `--schema`, `--json` and error contract, adding `unpriceable_stop` for a stop the live book cannot price. HIP-3 markets need an explicit `--taker-fee`. Documented in `docs/STOP_COST.md`.
++ Share coin and DEX validation (`cli_contract.market_selection`) and the metadata read (`opening_bell.read_market`) between the Opening Bell and the stop-cost check; each script keeps its own user agent.
++ Add an install page for each tool outside Grok Bot (Claude Code, Cursor, Codex, Gemini CLI and Grok Build) with the install commands, what loads and a keyless first run.
++ Lead the README with "Grok Bot for Hyperliquid", a row of supported tools, a keyless first run and an illustration of the worked ticket. Answer "Does HyperGrok have a token?" in the FAQ: it has none and will not launch one. Ask forks that change the approval model to use a name of their own.
+
+## 1.6.1 - 2026-10-13
+
+Tagged and published to npm. Adds Gemini CLI and Codex install paths; no skill, role or rule content changed beyond the bootstrap's release pins. The public Grok Bot template was republished for this release at https://x.ai/bot/3Fjt0kR65RoGjj5JNZJWp; its stored bootstrap body was read back against the tag. 1.6.0 shipped without a template refresh.
+
++ Add a Gemini CLI extension manifest, `gemini-extension.json`, with a short `GEMINI.md` context file. Gemini CLI loads the seventeen skills; its subagent schema rejects the extra frontmatter in `agents/`, so `GEMINI.md` names the roles, says they run as labelled passes and repeats the desk rule's approval paragraph verbatim. The format follows the official extension reference and has no native installation proof yet.
++ Add a Codex repository marketplace, `.agents/plugins/marketplace.json`, which Codex reads before the Claude-compatible index. Its entry pins this repository at the release tag, like the Grok index, with the install policy and category Codex requires. Codex CLI 0.160.0 installed 1.6.0 through it and listed all seventeen skills.
++ Extend `check_manifests.py` and its negative fixtures to both manifests, the Gemini context file and the documented Gemini and Codex install commands. Document both runtimes in the README, FAQ and architecture notes, and record in the release steps that a lone GitHub release asset would replace the tagged source for Gemini CLI.
+
+## 1.6.0 - 2026-10-12
+
+Tagged and published to npm. The public Grok Bot template still carries 1.5.0 and is being refreshed; `template/grok-bot.json` stays `ready-to-publish` until the new share is verified.
+
++ Add `scripts/research_dataset.py` for bounded public perp candle and optional funding collection. Explicit closed UTC windows, canonical market/DEX and network identity, validated observations, duplicate conflict detection, finite paced pagination and coverage gaps replace the strategy lab's silent CSV truncation path. No key, account read, synthetic data or exchange action is involved.
++ Save requests and decoded responses with retrieval times, observed CSVs and a hashed manifest. Offline `--verify` replays captured evidence and rejects changed files or inconsistent completeness claims. An intact incomplete bundle still fails the complete-data gate; local integrity does not prove source authenticity or strategy edge.
++ Require analyst-to-strategist handoffs to cite the bundle, manifest hash, requested period, coverage and verification. Preserve delisted-market flags, actual funding timestamps and missing observations; label oracle-price proxies and historical execution-cost assumptions explicitly.
++ Prepare package and six plugin manifests, bootstrap pins, changed skill versions and native-template hashes together. Mark the candidate template `ready-to-publish` with no public URL, while retaining historical 1.5.0 publication evidence.
++ Add a Claude Code `PreToolUse` hook that asks the user to confirm any Bash command, or script it names, that looks like a Hyperliquid exchange write, including in auto mode. It matches Python SDK and TypeScript client write methods and raw `/exchange` POSTs, never approves anything, and is documented as a backstop rather than native approval coverage. Idea from thysmans/hypergrok-iterated; original implementation with regression tests.
++ Open the README with a one-paragraph definition of the desk and where it runs, so search engines and assistants can describe it accurately.
+
+## 1.5.0 - 2026-10-08
+
++ Add offline `--schema` discovery and versioned JSON diagnostics to Opening Bell and the desk doctor. Invalid arguments and unavailable sources produce structured failures in JSON mode; warnings, skipped connectivity and incomplete depth keep their original meanings. Testnet selection is explicit and custom origins are labelled honestly.
++ Resolve read-only HIP-3 snapshots from the selected DEX metadata, preserving canonical prefixed and mixed-case coin names and rejecting unknown, ambiguous or delisted markets before reading their book. This does not enable HIP-3 execution or collateral transfers.
++ Correct unknown-send recovery: a newer noop does not invalidate every lower nonce. Capture the original signed nonce before dispatch; exact-nonce recovery needs its own approved ticket and confirmed acceptance, followed by reconciliation. Missing or unconfirmed evidence keeps risk reserved and new exposure paused. Expiry blocks late acceptance but does not cancel an accepted order.
++ Replace float-first spot formatting with exact Decimal helpers, preserving valid integer prices and approved buy ceilings/sell floors. Reject nonfinite and zero-rounded values and verify SDK wire encoding before signing.
++ Publish `hypergrok-trading-desk` as an npm resource package with an exact file allowlist, all seventeen skills and notices, seven roles, six plugin manifests and read-only tools. No runtime dependencies, JavaScript executor or install hooks are included. Contract and actual artifact checks guard release identity and private-state exclusions.
++ Refresh the pinned bootstrap, changed skill versions and reviewed hashes. Published the refreshed public Bot template and verified its preview and complete native bootstrap body; current installation evidence is recorded separately from the earlier October 2 native acceptance.
+
+## 1.4.8 - 2026-10-02
+
++ Require the bootstrap’s exact pinned release even when an older checkout passes its own check. Verify actual native skill name, description and complete Markdown body; repository hashes and staged save arguments do not prove stored instructions. Preserve internal whitespace and keep unreadable or different native content pending.
++ Reuse a role only with verified profile and standing-instruction evidence. Record Bot IDs, Trading Floor ID and member IDs, route checks to that Floor and preserve existing desks. Distinguish full native prompt proof from delivered-prompt and verified file-pointer evidence. Native testing found these gaps while upgrading an existing research desk; the execution role carries the material fork safeguards.
++ Document Grok’s geometric-only share avatar limit and retain all seventeen full-file release hashes alongside the bootstrap-only public export.
+
+## 1.4.7 - 2026-10-02
+
++ Export the reviewed bootstrap Markdown body in the public Grok Bot template, then install and verify all seventeen reviewed skills from the pinned release when the user sends **Start the desk.** The full inline pack exceeds Grok Bot's 100,000-character share limit; the template contract now distinguishes exported skills from the complete release inventory.
++ Retain all seventeen skill hashes in repository and desk-doctor validation. Reject a missing, duplicate or incorrect bootstrap export; preserve explicit full-file, pointer and mismatch results during setup.
+
+## 1.4.6 - 2026-10-02
+
++ Reviewed all 18 public forks and all 23 branches, with pinned heads and dispositions in [the fork review](docs/FORK_REVIEW.md). Adapted useful controls from thysmans, jawndiego and shadowslayerai into original desk instructions; no trading runtime, strategy or approval hook was imported.
++ Reserve account risk and margin for accepted tickets, resting entry remainders and unknown sends. Preserve allocations through partial fills, cancellations and restarts; recheck fresh capacity and the daily stop immediately before sending. Bind approval to immutable ticket economics and the send deadline to ticket expiry.
++ Recover account/orders and overlapping, de-duplicated fill history after feed gaps or desk restarts before permitting new risk. Read account abstraction mode before sizing and verify an API wallet's exact account mapping and current approval instead of treating unsigned reads as authority.
++ Remove the setup fallback to chat-only protection: unverified native SDK/script/HTTP approval coverage keeps the desk research-only without a provisioned key. Apply the same prerequisite to API-wallet setup and every send.
++ Lead reports with the conclusion, keep successful unchanged background checks quiet with durable evidence, and preserve the original idea on adjustment tickets. Requested reports and unavailable or actionable conditions still receive an answer. Refresh all release pins and reviewed skill hashes; the public desktop template remains pending publication.
+
+## 1.4.5 - 2026-09-26
+
++ Correct the TypeScript grouped order's take-profit sell floor and show exact decimal, directional rounding for dynamic buy ceilings and sell floors. The SDK formatter has no directional-rounding option; the offline gate now checks the published trigger arguments.
+
+## 1.4.4 - 2026-09-21
+
++ Preserve approved buy ceilings and sell floors when rounding IOC and trigger-order bounds. Use Decimal arithmetic until the SDK boundary, reject non-finite or zero-rounded values, and run the published pure helpers in offline regression tests. Refresh the template pointers and skill hashes to this release. The public desktop template is ready to publish; the README uses the pinned bootstrap until its new shared profile is verified.
+
++ Fix Grok Build marketplace installation: the root-local source registered successfully but could not resolve `hypergrok`. The index now uses this repository’s remote URL pinned to the reviewed release. All four install pages name the tested direct command; manifest fixtures guard the remote source and release refs, and release instructions keep both pins aligned. Grok Build component claims are limited to the verified skills and agents directories.
+
+## 1.4.3 - 2026-09-07
+
++ `scripts/desk_doctor.py` verified the install with two hardcoded counts, `EXPECTED_SKILLS = 17` and `EXPECTED_AGENTS = 7`, so any seventeen directories holding a `SKILL.md` passed whatever they were named. `SETUP.md` section 1 supports unpacking an attached archive when the clone fails; an unpack that dropped `desk-risk-limits` and left a stray `desk-risk-limits.bak` behind still counted seventeen, and the doctor reported 0 failed checks on a desk whose Risk Manager had no sizing skill. `scripts/check.sh` catches that, but section 3 and `hypergrok-bootstrap` run the doctor, not the gate. When the count really was short the user got `expected 17, found 16` and no way to tell which of seventeen directories to restore. The doctor now checks components by name against the lists the checkout already publishes and the gate already keeps honest - the `skills/README.md` index and the `agents/<name>.md` profiles `SETUP.md` tells the user to create - so it names what is missing and there is no constant left to bump at a release, which is the same defect the version check lost in 1.4.1. A directory the index does not list now warns instead of failing: a missing skill is caught by name, so an extra can no longer mask one, and a user's own skill is not a broken desk. Five tests cover a missing skill, a renamed skill that keeps the count, a missing profile, an undeclared extra and a missing index; all five fail against the counting doctor they replace.
++ `hypergrok-bootstrap` now continues independent supported preparation when a Bot or group-creation capability is unavailable, instead of stalling the rest of setup behind a missing manual step.
++ `desk-operating-model` now carries authorized tasks through the current engagement level, asks only for inputs that change the result, risk or authority, and continues independent reads while waiting. Its new Task handling section delegates independent research to specialists while keeping risk sign-off, user approval and execution in lifecycle order.
++ Add a contributor `AGENTS.md` and preserve MIT attribution (`ATTRIBUTION.md`, per-skill `LICENSE` and `ATTRIBUTION.md`) so a copy of this instruction set keeps its copyright notice.
++ `template/grok-bot.json` could name a published tag while carrying sha256 values for later bytes, and `scripts/check_grok_template.py` still passed because it hashed the working tree. The check now compares each claimed path to `git show <source.release>:<path>` and fails by path when they differ. If the tag is absent, the tree is not a git checkout, or git is unavailable, it prints an explicit skip instead of a silent ok. CI fetches tags so that comparison actually runs on `main`.
++ `scripts/desk_doctor.py` checked that every skill the release names is present, not that it is the skill that was reviewed. `SETUP.md` section 1 judges the clone by `scripts/check.sh`, which compares each body to the sha256 in `template/grok-bot.json`, but section 9 and `hypergrok-bootstrap` run the doctor alone and `README.md` offers it as the desk's standing health tool. So a skill body edited or truncated after the install gate - a `desk-risk-limits` that no longer says what the desk agreed - was reported as a healthy desk with 0 failed checks. The doctor now reads the same manifest the checkout already ships and names every path whose bytes no longer match, and fails rather than reporting an unverified desk when the manifest is missing or claims nothing. Four tests cover an edited body, an unreadable body, a missing manifest and an empty one; all four fail against the doctor they replace.
+
+## 1.4.2 - 2026-09-04
+
++ The public Grok Bot contract now exposes its exact release in the visible description. A stdlib checker compares the logged-out profile, description, action and deep-link id with `template/grok-bot.json`, with positive and drift fixtures in the local gate and a daily GitHub Actions check against the live preview. The release runbook now makes re-authoring and that external proof part of every release instead of leaving the public template to drift silently.
++ Audited all seven public forks. Six have no commits absent from upstream; the only diverged fork is a 526-file replacement with an unreleased Python execution runtime whose own support policy disables capital-bearing use, so it is a different product rather than a safe patch source. Its useful repository-review ideas were brought back as required redacted verification evidence on bug reports and required verification and rollback plans on improvements.
++ Re-authored the public **HyperGrok Desk Lead** template with all seventeen version-pinned `v1.4.2` skills and no plugins, memories or routines. Its botdirectory listing still says sixteen skills; the correction is open at https://github.com/elie222/botdirectory.ai/pull/279.
+
+## 1.4.1 - 2026-09-04
+
++ The Opening Bell marked bands the book did not reach as floors, but never went and got the depth. `l2Book` caps a page at 20 levels per side, and at full price resolution those levels stop 8.2 bps from the mid on ETH and 2.7 on BTC, so on BTC all three of the 5, 10 and 25 bps rows printed the same `>=` floor - 53 BTC where the depth within 25 bps was 467, understating the real book roughly ninefold. `hyperliquid-market-data` already documented the fix, re-requesting with `nSigFigs: 4`; the demo the desk runs first ignored its own skill. `scripts/opening_bell.py` now pages the book coarser (`nSigFigs` 4, then 3) until the widest band is measured, reads every band off the finest page that reaches it, keeps top of book and spread on the full-precision page, and names the page each figure came from because bucketing moves the band edges. A band no page reaches is still a floor. Verified live: ETH, BTC, SOL, HYPE and kPEPE now measure all three bands, SOL and HYPE escalating to 3 sig figs. Two robustness fixes came with it: a `null` `l2Book` body raised an uncaught `AttributeError` traceback instead of the script's own "unavailable" line, and an unusable coarser page no longer discards a snapshot the full page can serve. The market-data skill records the measured reach of each resolution and the ladder.
++ The Opening Bell reported depth at 5, 10 and 25 bps by summing whatever `l2Book` returned, but that response is capped at 20 levels per side, and on a liquid perp those levels stop a few bps from the mid - measured live at 8.1 bps on ETH and 2.5 bps on BTC. Every band wider than that reach therefore printed the same number: the whole returned page, quoted as a measured total. A new desk read `25 bps bid $5.16M` as the depth within 25 bps when the book had run out at 8, and three identical rows read as a flat book when the real one is deep. `hyperliquid-market-data` already required saying "beyond visible depth" past the visible levels; the demo the desk runs first did not. `scripts/opening_bell.py` now records how many levels each side returned and how far they reach, quotes any band beyond that as `>= size`, and names the cut-off under the table. The snapshot JSON carries `levels_returned`, `visible_reach_bps` and a per-side `*_complete` flag per band. A short book, which is the whole book, is still reported as measured. The market-data jq snippet returns `levels` and `reach_bps` alongside the bands and documents `nSigFigs: 4` as the way to reach past 20 bps, and the Market Analyst is told to quote the reach with the bands.
++ `scripts/desk_doctor.py` compared `plugin.json` against a hardcoded `EXPECTED_VERSION = "1.3.0"`, so shipping 1.4.0 turned the doctor against its own release: a correct, freshly pinned clone was told `expected 1.3.0, found 1.4.0` and `SETUP.md does not pin v1.3.0`, and the check the runbook and bootstrap skill both run in section 3 exited 1 on every new desk. The doctor now reads the release from `plugin.json` and checks the `SETUP.md` pin against that, so it cannot lag the tag it ships in, and it verifies its own file is present as the "release files" detail already claimed. A test runs `check_repository` against the real repository, so this can only fail in CI.
++ `SETUP.md` section 1 pinned the clone to `v1.4.0` while the sentence directly below it still explained `v1.3.0`, telling the reader two different releases were the reviewed one. `check_manifests.py` guarded the `git clone` command but nothing else, so the prose, and the `blob/<tag>` links in the manual fallback, could drift a release behind unnoticed. The sentence no longer repeats the version, and the check now fails when any instruction file names a release tag other than the one the manifests declare. `CHANGELOG.md` and `CONTRIBUTING.md` are exempt: they describe past releases by design. Two negative fixtures cover stale prose and a stale documented URL.
+
+## 1.4.0 - 2026-08-31
+
++ Added a versioned Grok Bot template contract for **HyperGrok Desk Lead**: exact public profile, pinned source URLs, mascot, seventeen skill paths and SHA-256 hashes, with plugins, memories and routines explicitly empty.
++ `hypergrok-bootstrap` and `SETUP.md` now recognise skills imported with the public template, install only what is missing and fail readiness on same-name content drift instead of creating duplicates or trusting a name alone.
++ `scripts/check_grok_template.py` verifies the release pin, public safety copy, avatar, exact skill inventory and hashes, empty optional capabilities and published-link wiring. Five negative fixtures prove the gate rejects release drift, missing skills, stale hashes, bundled plugins and invalid share URLs.
++ `docs/GROK_BOT_TEMPLATE.md` defines authoring, logged-out preview and clean-install acceptance. The supported path is one click and one message: **Add to Grok Bot**, then **Start the desk.**
++ Published the public template at https://x.ai/bot/PReCwAHq8Vgeex50r883H and verified its logged-out page returns the exact profile, safety copy and **Add to Grok Bot** deep link.
+
+## 1.3.0 - 2026-08-31
+
+Fast-start Trading Floor release. A fresh Grok Bot workspace can now build the full seven-role desk through one bounded bootstrap skill, show useful live data before asking setup questions, and return machine-checkable readiness evidence.
+
++ `hypergrok-bootstrap`: installs the pinned release, rings the Opening Bell, prepares the desk, creates the seven role profiles and private Trading Floor where supported, installs all seventeen skills, writes a research-only desk record and returns a result for every required check. It refuses keys, exchange writes and public sharing during bootstrap.
++ `scripts/opening_bell.py`: a zero-dependency, zero-key snapshot from Hyperliquid public `/info`, covering mid, mark, oracle, 24-hour change and volume, hourly funding, open interest, spread and visible 5/10/25 bps depth. Every output identifies source, network and UTC time and states that no account or order path was touched.
++ `scripts/desk_doctor.py`: deterministic release, inventory, workspace and public-connectivity checks. It never reads environment variables or account state. A missing desk record or risk limits is a visible warning; a broken release, missing component or dead public API is a failure.
++ Four Opening Bell tests and three desk-doctor tests now run in `scripts/check.sh`, including depth arithmetic, crossed-book rejection, missing-desk warnings and a key-like material guard.
++ `README.md`, `SETUP.md`, the architecture, FAQ and skills index now present the fast path and retain the complete source-driven fallback. The distribution carries seventeen skills and pins setup to `v1.3.0`.
+
++ `SETUP.md` section 1 pins the clone to a release tag, and `CONTRIBUTING.md` already recorded that a drifted pin is worse than none - "if step 4 is skipped, the release ships instructions pointing at the previous one". Nothing enforced it: bumping all six manifests and leaving the `--branch` pin behind passed `scripts/check.sh` green, so the one command every new desk runs first would have installed the previous release while the docs described the new one. `check_manifests.py` now fails when a documented `git clone` of this repository names a tag other than `v<manifest version>`, names a moving branch, or carries no ref at all, with three negative fixtures covering those cases.
++ README linked the live skills.sh listing at `/galleonlabs/hypergrok-trading-desk/hypergrok`. skills.sh indexes skill directories, not the plugin id, so that page reports `hypergrok` is not in the repository even though the pack page (16 skills) is live. The link now points at the pack. `check_manifests.py` fails if a documented skills.sh URL or `skills add` argument names a slug this repository does not ship.
++ `desk-risk-limits` and `agents/risk-manager.md` quoted the worked example's `slip_stop` of 3.00 as "10 bps" *on the trigger*, but 10 bps of the 2,900 trigger is 2.90, which gives a stressed distance of 105.55 and a size of 0.4831 ETH - not the 105.65 and 0.4827 ETH those files, `README.md` and `desk-trade-lifecycle` all carry. 3.00 is 10 bps of the 3,000 ticket price, which is how `desk-trade-lifecycle` already quotes slippage. Both glosses now name that reference price, so a Risk Manager showing every line of the arithmetic reproduces the desk's own numbers instead of contradicting them. `slip_stop` stays defined in price units; no figure in the worked example moves.
+
+## 1.2.0 - 2026-08-29
+
+Correctness pass across the Hyperliquid skills and the incident playbooks, closing the last findings from the fork audit that genuinely apply to a markdown desk. Three of these could strand a real position.
+
+**A partial close stripped the remainder's protection.** `hyperliquid-positions` said to cancel orphaned TP/SL "after any close". After a *partial* close the position still exists and still needs its stop, so the sweep removed the protection from what was left. Clean-up is now conditional on reading `clearinghouseState`: cancel orphans only on a confirmed full close; on a partial close, replace a fixed-size stop before cancelling the old one, and leave a position-tied stop alone. Same fix in the `desk-execution-protocol` close procedure, which had the same reflex.
+
+**The TypeScript bracket carried no client order ids.** The grouped entry/tp/sl example omitted `c:` on all three legs, while `desk-execution-protocol` requires a cloid on every send and the whole unknown-result recovery path is a lookup by cloid. A send built from that example could not be reconciled. Every leg now carries its own.
+
+**The dead-man's switch is not position-aware.** `scheduleCancel` cancels protective stops along with everything else, so arming it with a position open leaves that position naked when it fires, and nothing re-arms it. It is now scoped to a desk with resting orders and no position, and firing with a position open is an unprotected-position incident rather than clean-up.
+
++ `desk-incident-response`: playbook A matches the recovery rule from 1.1.0 - a clean check is not proof, and a replacement waits for the original to expire. Playbook D no longer lets an unprotected position wait forever on a human: the first alert carries exposure and distance to liquidation, escalation runs on a deadline recorded in `desk.md`, and when it passes the desk tells the user to fix it in the Hyperliquid app rather than pinging a channel nobody is reading.
++ Standing approvals are scoped by what they can do rather than by network. The ceiling is now "no standing approval for a mainnet send that can open or increase exposure", with reduce-only protection as the explicit carve-out on any network - it can only reduce risk, and the alternative is a naked position waiting on a message. `SETUP.md` asks the user that question during setup and records the answer, with a deadline, in `desk.md`.
++ `docs/FAQ.md`, `SECURITY.md` and `agents/execution-trader.md` described the pre-1.1.0 approval and unknown-result rules. They now match the skills.
++ `SETUP.md`: note that `git clone --depth 1 --branch <tag>` prints a harmless `refs/tags/... is not a commit!` warning for an annotated tag, so a Bot following the file does not read it as a failed install and abort.
+
+## 1.1.1 - 2026-08-29
+
+Consistency pass over the surfaces 1.1.0 changed underneath. 1.1.0 corrected the sizing arithmetic but left the desk's worked example, `README.md` and `docs/ARCHITECTURE.md` describing the old behaviour, so the front page taught the bug the release had just fixed.
+
++ The `HG-20260816-01` example is now one trade end to end at 0.4827 ETH: `README.md`, `desk-trade-lifecycle`, `desk-monitoring`, `desk-post-trade-review`, `agents/execution-trader.md` and `agents/trade-reviewer.md`. Sizing is proportional, so the R multiple (+0.9R) and the cost figure (16 bps of notional) are unchanged; notional, margin, fees, funding and PnL scale with the size. The generic SDK snippets in `hyperliquid-orders` keep a round size on purpose - they teach API syntax and are not part of the narrative.
++ `README.md`: the ticket shows the stressed distance it was sized from, and the guarantees section no longer implies the approval phrase is itself the gate.
++ `docs/ARCHITECTURE.md`: trust boundaries carry the bounded-send and expiry rule, the approval boundary matches the operating model, and `unavailable` is documented as a verdict.
++ `CONTRIBUTING.md`: a release procedure, because `SETUP.md` pins a tag and a pin drifts silently the moment `main` moves ahead of it. Also records that the worked example is cross-file state, and corrects the stated skill body budget (320 lines, which is what `scripts/check.sh` enforces).
+
+## 1.1.0 - 2026-08-29
+
+Risk, evidence and recovery hardening. Several of these came out of reviewing a public fork of this repository, which audited the desk against production-custody standards; the findings that survived being a markdown desk rather than a signing service are below.
+
+**Sizing now stresses the stop.** `desk-risk-limits` sized from the nominal stop distance, which assumes a triggered stop fills at its trigger price. It does not: a stop is a trigger order that becomes a market order, slips, and pays taker on both legs. Every trade therefore risked more than the budget said. Size now comes from `stressed_distance` (slippage plus both fee legs). On the desk's own worked example the old arithmetic spent 0.528% of equity against a 0.5% budget; the new arithmetic lands on the budget exactly. `agents/risk-manager.md` carries the recomputed example.
+
++ `desk-risk-limits` section 0: desk ceilings the user's limits file may only tighten, never loosen - 2% per trade, 6% total open risk, 20x, -10% daily, mandatory exchange-resting stop, and no standing approval covering a mainnet send. They are deliberately far looser than any sane setting; they exist so a mistyped or corrupted file cannot authorise a catastrophic ticket. Enforced in the sizing arithmetic, not only asserted.
++ `unavailable` is a verdict, not silence. `desk-operating-model` makes missing, stale, gapped, partial or cross-network data a first-class outcome that never collapses into "the condition did not fire". `desk-monitoring` applies it to watches: a dead feed reporting "not crossed" looks exactly like a calm market, so every watch carries a staleness bound and alerts when it cannot tell.
++ The approval line is evidence, not the gate. The Bots write the floor's messages, so an approval a Bot can read is one a Bot could have written. `desk-operating-model` and `desk-trade-lifecycle` now put enforcement out of band and forbid a Bot writing, quoting forward, inferring or simulating the user's approval.
++ Unknown results: a clean read was never proof. A send that timed out can still land after any number of quiet checks. `desk-execution-protocol` now requires `expiresAfter` on every send in the pre-send checklist and treats a ticket as dead only when the original is provably incapable of arriving, with `noop` as the fallback when no expiry was set.
++ `desk-strategy-lab`: a freeze checklist for claims imported from outside (a repository of settings, a thread, a screenshot), multiplicity across every variant tried including the source's, a block-bootstrap lower bound beside the mean expectancy, a cost-doubling sanity check, and the rule that looking at the holdout spends it.
++ `desk-execution-protocol`: repaired a rule that was truncated mid-sentence ("Never let a routine send.").
++ `SETUP.md`: the install no longer falls back to piping an unverified archive from a mutable branch into `tar`. It clones a pinned tag, runs `scripts/check.sh` before a desk is built from the tree, and records the installed commit in `desk.md` so the desk can say which rules it is running.
++ Docs: the exact Claude Code install commands (`/plugin marketplace add galleonlabs/hypergrok-trading-desk`, `/plugin install hypergrok@hypergrok`), verified end to end against the published repository. "Open the repository, enable it" was not an actionable path in Claude Code even though the marketplace manifest shipped and worked.
++ `docs/ARCHITECTURE.md` now lists the `.claude-plugin/` manifests alongside the others.
++ `scripts/check_manifests.py`: install commands in the docs must name a marketplace and plugin id this repository actually declares.
++ Fixed: `predictedFundings` is normalised by each venue's own funding interval.
++ Fixed: the WebSocket watch no longer points at the rejected `webData2` subscription.
+
+Note on versions: the `v1.0.0` git tag pointed at an orphaned lineage (the earlier Python CLI, with `src/` and `pyproject.toml`) that is not an ancestor of `main`, while the 1.0.0 entry below describes this markdown desk. The stale tag has been removed; `v1.1.0` is the first tag that matches what this repository actually ships.
+
+## 1.0.0 - 2026-08-16
+
+Launch. There is no `v1.0.0` git tag for this entry; see the versioning note in 1.1.0 above.
+
++ `SETUP.md`: the file a Grok Bot follows to build the desk - repository onto the computer, seven Bots from profile cards, sixteen shared skills, one Trading Floor group chat, approval rules, desk record, read-only verification, receipt.
++ Seven roles with full system prompts: Desk Lead, Market Analyst, Research Analyst, Strategist, Risk Manager, Execution Trader, Trade Reviewer.
++ Eight Hyperliquid skills: setup and API wallets, market data, account reads, orders, positions and margin, WebSocket, advanced actions, API reference. `curl` for reads, official Python SDK and `@nktkas/hyperliquid` for writes; snippets verified against the live API.
++ Eight desk skills: operating model, trade lifecycle, risk limits and sizing, execution protocol, monitoring, post-trade review, incident response, strategy lab.
++ Docs: how the desk works, FAQ, provenance. Mascot in `assets/`.
++ `scripts/check.sh` and CI: frontmatter, links, one-writer rule.
++ Plugin manifests and rule so Grok Build, Cursor and Claude Code load the same roles and skills.

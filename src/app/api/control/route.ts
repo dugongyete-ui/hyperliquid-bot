@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     const body = (await req.json()) as { action?: string; ids?: string[] }
     const action = body.action
     if (!action) return NextResponse.json({ error: 'action required' }, { status: 400 })
-    if (!['pause', 'resume', 'closeAll', 'resetSim', 'seen'].includes(action)) {
+    if (!['pause', 'resume', 'closeAll', 'resetSim', 'resetDailyStop', 'seen'].includes(action)) {
       return NextResponse.json({ error: 'unknown action' }, { status: 400 })
     }
     const engine = ensureEngine()

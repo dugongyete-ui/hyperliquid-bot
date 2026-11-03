@@ -35,6 +35,7 @@ export interface TradeRow {
   exitPx: number | null
   pnl: number
   pnlPct: number
+  riskUsd: number // $ a stressed stop hit costs — R-multiple = pnl / riskUsd
   status: 'open' | 'closed'
   reason: string
   exitReason: string | null
@@ -67,6 +68,18 @@ export interface NotificationRow {
 
 export type RiskProfile = 'chill' | 'balanced' | 'turbo'
 
+/** HyperGrok desk risk state (reservation ledger + daily loss stop) */
+export interface RiskState {
+  perTradePct: number
+  totalPct: number
+  dailyStopPct: number
+  openRiskUsd: number
+  openRiskPct: number
+  dailyStopUsage: number // 0..1+ fraction of the daily stop consumed
+  latched: boolean
+  latchedReason: string
+}
+
 export interface EngineSnapshot {
   ts: number
   feedOk: boolean
@@ -87,6 +100,7 @@ export interface EngineSnapshot {
   leverage: number
   positionPct: number
   riskProfile: RiskProfile
+  risk: RiskState
   goal: { target: number; done: boolean }
   equityCurve: EquityPointRow[]
   crew: CrewBotState[]
@@ -106,6 +120,9 @@ export interface SettingsPayload {
   leverage?: number
   positionPct?: number
   riskProfile?: RiskProfile
+  maxRiskPct?: number
+  maxTotalRiskPct?: number
+  dailyLossStopPct?: number
   privateKey?: string
   walletAddress?: string
 }

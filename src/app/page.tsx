@@ -216,6 +216,15 @@ export default function Home() {
                   {state?.streak}
                 </span>
               )}
+              {state?.risk?.latched && (
+                <span
+                  className="animate-badge-pop flex items-center gap-1 rounded-full bg-[#DC2626] px-2 py-[3px] text-[12px] font-black text-white shadow-sm"
+                  title="Daily loss stop hit — no new risk until reset"
+                >
+                  <ShieldAlert size={13} strokeWidth={2.6} aria-hidden />
+                  no-new-risk
+                </span>
+              )}
             </div>
             <p className="text-[14px] font-bold text-[#8E8E93]">
               {state?.tradesClosed ?? 0} trades ·{' '}

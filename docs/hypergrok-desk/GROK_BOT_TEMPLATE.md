@@ -1,0 +1,125 @@
+# Grok Bot template
+
+`template/grok-bot.json` is the release contract for the public **HyperGrok Desk Lead** template. It records the exact public profile, source release, avatar, exported bootstrap skill and complete reviewed release inventory. `templateSkillNames` lists the skills carried by the share; `skills` contains all seventeen files and hashes that setup must install and verify.
+
+**Release state — 2026-11-03:** The [1.7.1 public template](https://x.ai/bot/2GeaOwIsmTEOD_WGzmghC) is published. Its complete exported bootstrap was independently read back in the native UI and matched the reviewed source. The earlier 1.7.0 share keeps installing 1.7.0. Earlier receipts below apply only to their named releases.
+
+**Prior release — 2026-10-25:** The [1.7.0 public template](https://x.ai/bot/qgVMePFoWotJTUtl3gkdZ) is published. Its complete exported bootstrap was independently read back in the native UI and matched the reviewed source. Source and package checks are recorded separately. Earlier receipts below apply only to their named releases.
+
+The public template carries one `hypergrok-bootstrap` skill. **Add to Grok Bot** imports the Desk Lead and bootstrap; **Start the desk.** fetches the pinned release and installs the full seventeen-skill desk. Grok Bot's share helper limits its inline recipe to 100,000 characters; the full reviewed pack exceeds that limit. Keep the complete instructions in the release instead of shortening them to fit the share.
+
+Grok’s current share helper exports geometric avatars only; it does not carry a custom JPEG from the publishing Bot. The public template therefore uses Grok’s default icon. The release mascot remains available for installed Bots where supported.
+
+The template deliberately carries no plugins, memories or routines. The Opening Bell and bootstrap use public Hyperliquid data and the repository checkout, so a new user should not see a connector prompt, inherit an author's context or activate unattended work during installation.
+
+## Author the template
+
+Use a fresh Grok Bot named **HyperGrok Desk Lead**. Copy the `name`, `title` and `description` from `template/grok-bot.json`, and use its avatar where supported, then add the full skill body for each name in `templateSkillNames` from its pinned `path` in `skills`. Do not paraphrase the skill file or substitute a URL/hash declaration for its body. The manifest's SHA-256 values identify the reviewed bytes. The public description must include the exact `source.release`; that visible marker lets automation detect a stale public template without depending on Grok Bot's private template format.
+
+Grok Bot stores the skill's `name` and `description` separately and rebuilds their YAML wrapper. Its native content field rejects a complete file beginning with `---` and does not retain the source's `license` or `metadata` fields. Copy the source name and description unchanged, and supply all Markdown after the closing frontmatter delimiter, omitting only empty lines at the beginning and the final newline. Preserve all internal content. The shared native skill is therefore not byte-identical to the complete `SKILL.md` file.
+
+Keep all seventeen full-file hashes in the release manifest: they verify the pinned checkout, including its frontmatter. For native publication, separately compare the name, description and normalized Markdown body with the source. Record the normalization, body length and hash, and distinguish a hash of the locally staged content argument from an independent readback of the exported or imported skill. A staged argument proves what was supplied, not what the product stored.
+
+Do not add conversation history, private files, account details, plugins, memories, secrets or routines. Before sharing, confirm the template inventory is:
+
+- one Desk Lead profile
+- one `hypergrok-bootstrap` skill with the reviewed Markdown body
+- zero plugins
+- zero memories
+- zero routines
+
+Run the repository gate before publishing:
+
+```bash
+bash scripts/check.sh
+```
+
+## Publish and record the link
+
+Share the Bot publicly from Grok Bot and copy its `https://x.ai/bot/<id>` link. Change the manifest status to `published`, add that exact URL as `publicShareUrl`, and put the same link in `README.md` and `docs/FAQ.md`. The template validator rejects a published state if the URL is malformed or missing from either public install surface.
+
+Keep the publishing Bot after release: hide it rather than delete it. A share outlives its Bot, and once the Bot is deleted neither the app nor x.ai offers a way to update or unpublish that link, so a stale share keeps installing an old release. With the Bot kept, the next release uses **Update template** in its Share menu and the existing link moves forward. As of 2026-10-13 the Bots behind the 1.4.8, 1.5.0 and 1.6.1 shares have all been deleted, so the next release needs a fresh Bot and link; retiring the 1.4.8 and 1.5.0 links needs xAI support.
+
+Inspect the native share's Context panel before publishing: it must contain the reviewed bootstrap instructions and no other skills. Independently read back the stored content to verify its body; a Context entry or a file downloaded to the author's computer does not prove all exported bytes. Verify the exported avatar separately from the publishing Bot's avatar. The public preview must show:
+
+- **HyperGrok Desk Lead**
+- the description from the manifest
+- **Add to Grok Bot**
+- no private conversation, file, account or secret
+
+Check the preview while logged out. Importing it should create a new Bot carrying the bootstrap; it must not merge into an existing one or import the author's computer, chats or tokens. User-wide shared skills may already exist, so setup compares their actual instructions before enabling them and never assumes a name proves the right release.
+
+Verify the published preview directly:
+
+```bash
+python3 scripts/check_public_template.py --live
+```
+
+The scheduled **Public Grok Bot template** workflow repeats that check weekly. A failure is a release incident: re-author the public template from the manifest and rerun the workflow. Do not weaken the manifest to match stale public content.
+
+## Evaluate a clean install
+
+Add the template as a new Bot, then send exactly:
+
+> Start the desk.
+
+The Desk Lead follows `hypergrok-bootstrap`. A passing result has:
+
+1. the release tag and commit from the manifest
+2. a live, timestamped Opening Bell from public Hyperliquid `/info`
+3. seven named Bots or exact manual cards for any unavailable creation capability
+4. exactly seventeen unique skills, each reported as `template`, `installed` or `pointer`, with no `mismatch`
+5. a private Trading Floor with the six floor Bots, or an exact manual step if group creation is unavailable
+6. a passing desk doctor and all five role checks
+7. actual native name/description/body readback for every skill, with only documented boundary normalization; verified role standing-instruction evidence; recorded Bot, Floor and membership IDs
+8. this sentence: **Setup stayed read-only: no key requested and no order created or sent.**
+
+Do not describe the template as a zero-interaction installer. **Add to Grok Bot** creates the Desk Lead; **Start the desk.** runs the reviewed setup. The public path is one click and one message.
+
+## Publication verification - 2026-11-03
+
+The [1.7.1 public template](https://x.ai/bot/2GeaOwIsmTEOD_WGzmghC) was authored from tag `v1.7.1` at commit `4acf5434de4161a35dd0cc0106d13959473b199f`. The Bot behind the 1.7.0 share could not be reached from the app or from grok.com, so a fresh Bot and link were used. Keep this Bot so the next release can use **Update template**. The publishing Bot has the manifest name, title and description, a default geometric avatar and one exported `hypergrok-bootstrap` skill. Its Context panel contains the public description and that skill, with no memories and no integrations. The public profile reads "By Andrew".
+
+Independent native readback opened **View Details → Context → hypergrok-bootstrap** before publishing and hashed the complete rendered content. The normalized Markdown body matched the source: 9,450 UTF-8 bytes, SHA-256 `3b71494ff0917fb3b173bbd86bf5324dea905058975040bacfc3720b969e88dd`. The logged-out preview shows the name, the v1.7.1 description and **Add to Grok Bot**.
+
+A fresh public import and **Start the desk.** round trip has not been performed for this release. The source gate and clean pinned installation do not establish native seven-Bot acceptance. No account read, key provisioning, routine activation or exchange action was used for publication.
+
+## Publication verification - 2026-10-25
+
+The [1.7.0 public template](https://x.ai/bot/qgVMePFoWotJTUtl3gkdZ) was authored from reviewed candidate commit `57bfd65be33b3a5eeee43dbd66c1daa2ee560ae5`. The publishing Bot has the manifest name, title and description, the default geometric avatar and one exported `hypergrok-bootstrap` skill. Its Context panel contains the public description and that skill; no plugins, memories or routines are exported. The native Publish action returned **Your Bot was successfully published** and its card showed **Published**. The publishing Bot is retained for future updates.
+
+Independent native readback opened **View Details → Context → hypergrok-bootstrap**, selected its complete rendered content and compared the returned accessibility text with the reviewed source. The exact source name and description matched. The complete normalized Markdown body appeared unchanged: 9,450 UTF-8 bytes, SHA-256 `ed0e123a011a9837c285b207da3daccd4bd7497fa1426d1c9a2d85e40f1d06d7`. The complete source file is SHA-256 `423d4897673b04965e5ac697135470422e0e52b55525e48654eda87c7b5fc2a8`, matching the release manifest. Grok rebuilds the frontmatter wrapper; this proves the exported body and profile, not full-file byte identity or a fresh desk's readiness.
+
+A fresh public import and **Start the desk.** round trip has not been performed for this release. The source gate and clean pinned installation do not establish native seven-Bot acceptance. No account read, key provisioning, routine activation or exchange action was used for publication.
+
+## Publication verification - 2026-10-13
+
+The [1.6.1 public template](https://x.ai/bot/3Fjt0kR65RoGjj5JNZJWp) was published from source commit `3328e9357032748345cebfa6ad0348d1fd3816da`. The Grok Products Bot updated the shared `hypergrok-bootstrap` skill and read it back from native storage: name and description unchanged from the source, normalized Markdown body 9,450 bytes, SHA-256 `60a2f86da3646d16db57adee3f2691a71225d17263ed4d5988f3345f6830e687`, matching the body recomputed from the tag; the full source file is SHA-256 `9613570ce8f7fb45a4727f4327b2b3b31e60b1a6dbab1510897a26ee793e6b3a`, as in the manifest. The Bot that published the 1.5.0 share was not visible to the publishing account, so a fresh **HyperGrok Desk Lead** Bot was created with the manifest name, title and description, the default avatar and no plugins, memories or routines; the share stages only `hypergrok-bootstrap`. Andrew confirmed the native publish card, which then showed **Published**.
+
+The logged-out preview returns **HyperGrok Desk Lead by Andrew** with the 1.6.1 description, and `check_public_template.py --live` passes against this manifest. The new share has a new link, so the 1.5.0 link did not update in place; the 1.4.8 and 1.5.0 shares remain public. A fresh public import and **Start the desk.** round trip was not performed for this release.
+
+## Publication verification - 2026-10-08
+
+The [1.5.0 public template](https://x.ai/bot/-c_oDxnkrXbWhBz-u4qu5) was published from source commit `5eb1d9a82157440d64f25a72cd06d9f3977dc472`. The native Context panel showed only the public description and one `hypergrok-bootstrap` skill, with no memories, plugins or routines. Complete independent native Settings readback verified the exact name, description and 9,450-byte normalized Markdown body, SHA-256 `be054eedaad650646148b10d5af49f143eddb64f9f1554df8c4632f7277051af`, against the tagged source. This is stored native skill evidence, not a hash of a staged argument. Grok rebuilds its YAML wrapper without source license or metadata.
+
+At publication, the anonymous public preview matched the release description, Add action and new deep-link ID. The public avatar was Grok's geometric default and its creator attribution followed the publishing account. The previous October 2 share had a different ID; 1.5.0 install surfaces used the new link. A clean pinned-tag clone passed the complete repository gate. A fresh public import/setup round trip was not performed during this release, and the earlier native desk acceptance does not prove one for 1.5.0.
+
+The reviewed 1.5.0 template was publicly shared. A search of the curated Grok Bot marketplace returned no HyperGrok listing, and its visible page and official sharing guide exposed no submission action. Public sharing does not establish catalog acceptance. This record does not refresh the live share or establish publication of a later candidate.
+
+## Publication and native test - 2026-10-02
+
+Release 1.4.7 was published as [HyperGrok Desk Lead](https://x.ai/bot/1HXwKKdavqHZRzSsWbDCN). Its anonymous preview and the public-template workflow passed. Andrew imported a new Bot, then **Start the desk.** was sent. The native readback reported the loaded bootstrap body as 5,594 bytes with SHA-256 `264dc49723a2a9cac4b4c0b61026ecc075a363a21ac01a6b89b5c474c85ae622`, matching the reviewed source at commit `1063e6c40fcfd287edf2d118669689a5297d066f` after removing frontmatter and the leading blank line/final newline. This proves normalized body equivalence, not complete-file byte identity.
+
+The native run produced live ETH and BTC briefs and five passing role checks. Its final doctor reported a transient public API HTTP 429, and role reuse initially relied on old seats. Skill comparison also used a broader whitespace transformation than the documented rule. These observations are why 1.4.8 requires exact native content comparison, evidence for role reuse and group/member IDs before readiness.
+
+The October 2 1.4.8 template was published from the same share ID. Its anonymous preview passes the exact profile, Add action and matching deep-link checks. The staged source body is 9,450 bytes with SHA-256 `5c3c84706500582bcd98dab4c02d34230bb501a46922a732b964158456eea6d4`; the full source file is 9,941 bytes with SHA-256 `112b1f7784b787068a654c1cfc40953a94e95ceb8b344abe656a469c4b735101`, at commit `7124af575a3b7004774ccdecaa5b0939d1da1f66`.
+
+The imported Bot then ran a 1.4.8 repair check, preserving the clean older checkout in a backup and both prior Floors. Independent comparison of the complete native skill export confirmed all seventeen names, descriptions and normalized Markdown bodies against the release tag; sixteen skills were already present and the bootstrap was updated. Full-file agent hashes also matched the tag. A new six-member Floor contained the six intended current roles, with Trade Reviewer outside it; the actual membership and role-check replies were inspected in the native UI.
+
+The initial receipt overstated role evidence: the seven new roles had short descriptions and missing Jobs, and the transcript API clipped long standing messages. Supported profile updates and manual native Job edits corrected all seven profiles, which were then independently exported and matched exactly. Complete rendered native conversation readback, including overlapping images for clipped code and long text, verified every System prompt. Execution Trader's first message lost part of its footer; its exact full prompt was redelivered with a compact wrapper and complete pinned path/hash, then checked again. All seven roles passed `delivery-and-pointer`: complete rendered instructions, native acknowledgement and a tagged file hash. This method does not prove raw Markdown byte identity or byte-identical persistent memory.
+
+The doctor passed nine checks with zero failures and one expected warning for the absent risk-limits file. Live public mainnet Opening Bells for BTC and ETH were recorded at 08:48:18 and 08:48:32 UTC, respectively; all five role checks passed. The repaired native desk is verified for research use. A further import of the current published template remains pending, so these results do not yet prove a fresh 1.4.8 public export/import round trip.
+
+The setup remained research-only: no key requested, no order created or sent, and no approval-setting changes. Delivered standing instructions and verified release pointers do not prove byte-identical persistent memory. Private Bot, Floor and member IDs stay in the desk-local receipt and are excluded from this public record.
+
+The current share tool has no image/path/bytes/URL avatar field and copies only a live geometric avatar. Both public preview and the imported Bot showed Grok’s default icon; a custom mascot export is unsupported. No claim of mascot byte identity is made for the share.
