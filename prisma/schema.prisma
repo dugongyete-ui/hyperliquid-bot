@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Global bot settings (single row, id = "main")
+model Settings {
+  id              String   @id @default("main")
+  mode            String   @default("sim") // sim | testnet | mainnet
+  botName         String   @default("Grok Bot")
+  startingEquity  Float    @default(1000)
+  goalMultiple    Float    @default(2)
+  privateKey      String?  // agent wallet private key (live modes only)
+  walletAddress   String?  // optional main wallet address when using an agent wallet
+  liveStartEquity Float?   // first observed account value after switching to live
+  running         Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+}
+
+// Every trade (open + closed) placed by the crew
+model Trade {
+  id         String    @id @default(cuid())
+  mode       String // sim | testnet | mainnet
+  botKey     String
+  coin       String
+  side       String    @default("long")
+  sizeUsd    Float
+  qty        Float     @default(0)
+  entryPx    Float
+  exitPx     Float?
+  peakPx     Float     @default(0) // highest seen price (for trailing stop)
+  pnl        Float     @default(0)
+  pnlPct     Float     @default(0)
+  status     String    @default("open") // open | closed
+  reason     String    @default("")
+  exitReason String?
+  openedAt   DateTime  @default(now())
+  closedAt   DateTime?
+}
+
+// Equity curve samples
+model EquityPoint {
+  id        String   @id @default(cuid())
+  mode      String
+  equity    Float
+  createdAt DateTime @default(now())
+}

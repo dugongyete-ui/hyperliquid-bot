@@ -1,0 +1,959 @@
+// The trading engine: 5 autonomous agent bots trading the Hyperliquid universe.
+// SIM mode = paper fills at live mainnet prices.
+// LIVE modes = real signed orders via the official Hyperliquid SDK.
+
+import { db } from '@/lib/db'
+import { CREW, crewDef, type CrewDef } from './crew'
+import { MarketData } from './market'
+import { evaluateSignal, type Signal } from './strategies'
+import {
+  liveAccountState,
+  liveMarketClose,
+  liveMarketOpen,
+  deriveAddress,
+  roundQty,
+  validatePrivateKey,
+  type LiveNetwork,
+} from './hl-exchange'
+import type {
+  BotKey,
+  CrewBotState,
+  EngineSnapshot,
+  EquityPointRow,
+  NotificationRow,
+  TradeMode,
+  TradeRow,
+} from '@/lib/shared-types'
+
+const TICK_MS = 2500
+const MAX_OPEN = 4
+const SCRATCH_PCT = 0.08 // |pnl%| below this = breakeven "scratch" trade
+const STREAK_MILESTONES = [5, 10, 20, 50]
+
+interface OpenPosition {
+  tradeId: string
+  botKey: BotKey
+  coin: string
+  qty: number
+  sizeUsd: number
+  entryPx: number
+  peakPct: number
+  lastPnlPct: number
+  openedAt: number
+  mode: TradeMode
+  reason: string
+  adopted: boolean
+}
+
+interface BotStats {
+  pnl: number
+  wins: number
+  losses: number
+}
+
+interface BotRuntime {
+  def: CrewDef
+  state: CrewBotState
+  cooldownUntil: number
+  lastActiveAt: number
+  nextScanThoughtAt: number
+}
+
+export interface EngineSettings {
+  mode: TradeMode
+  botName: string
+  startingEquity: number
+  goalMultiple: number
+  privateKey: string | null
+  walletAddress: string | null
+  liveStartEquity: number | null
+  running: boolean
+}
+
+function rand(min: number, max: number): number {
+  return min + Math.random() * (max - min)
+}
+
+export class Engine {
+  market = new MarketData()
+  settings: EngineSettings = {
+    mode: 'sim',
+    botName: 'Grok Bot',
+    startingEquity: 1000,
+    goalMultiple: 2,
+    privateKey: null,
+    walletAddress: null,
+    liveStartEquity: null,
+    running: true,
+  }
+
+  private bots = new Map<BotKey, BotRuntime>()
+  private positions: OpenPosition[] = []
+  private closedCache: TradeRow[] = []
+  private botStats: Record<TradeMode, Record<string, BotStats>> = {
+    sim: {},
+    testnet: {},
+    mainnet: {},
+  }
+  private equityPoints: EquityPointRow[] = []
+  private notifications: NotificationRow[] = []
+  private unseenIds = new Set<string>()
+  private streak = 0
+  private nextStreakMilestone = STREAK_MILESTONES[0]
+  private goalNotified = false
+  private liveAccountValue: number | null = null
+  private ready = false
+  private tickCount = 0
+  private lastLiveSyncAt = 0
+  private lastEquityPersistAt = 0
+  private timer: ReturnType<typeof setInterval> | null = null
+
+  async init() {
+    // settings row
+    let s = await db.settings.findUnique({ where: { id: 'main' } })
+    if (!s) {
+      s = await db.settings.create({ data: { id: 'main' } })
+    }
+    this.settings = {
+      mode: (s.mode as TradeMode) ?? 'sim',
+      botName: s.botName,
+      startingEquity: s.startingEquity,
+      goalMultiple: s.goalMultiple,
+      privateKey: s.privateKey,
+      walletAddress: s.walletAddress,
+      liveStartEquity: s.liveStartEquity,
+      running: s.running,
+    }
+
+    // init bot runtimes
+    for (const def of CREW) {
+      this.bots.set(def.key, {
+        def,
+        state: {
+          key: def.key,
+          name: def.name,
+          color: def.color,
+          face: def.face,
+          pnl: 0,
+          wins: 0,
+          losses: 0,
+          status: 'scanning',
+          thought: def.scanningThoughts[0],
+          thoughtAt: Date.now(),
+          holding: null,
+        },
+        cooldownUntil: 0,
+        lastActiveAt: Date.now(),
+        nextScanThoughtAt: Date.now() + rand(8000, 25000),
+      })
+    }
+
+    // aggregate closed trades per mode
+    const closed = await db.trade.findMany({ where: { status: 'closed' }, orderBy: { closedAt: 'asc' } })
+    for (const t of closed) {
+      const stats = this.botStats[t.mode as TradeMode] ?? this.botStats.sim
+      const cur = stats[t.botKey] ?? { pnl: 0, wins: 0, losses: 0 }
+      cur.pnl += t.pnl
+      if (t.pnl > 0) cur.wins++
+      else if (t.pnl < 0) cur.losses++
+      stats[t.botKey] = cur
+    }
+    this.closedCache = closed
+      .slice(-40)
+      .reverse()
+      .map((t) => this.dbTradeToRow(t, crewDef(t.botKey)))
+
+    // recompute streak for current mode
+    this.recomputeStreak()
+
+    // hydrate open trades → positions
+    const open = await db.trade.findMany({ where: { status: 'open' } })
+    this.positions = open.map((t) => ({
+      tradeId: t.id,
+      botKey: t.botKey as BotKey,
+      coin: t.coin,
+      qty: t.qty,
+      sizeUsd: t.sizeUsd,
+      entryPx: t.entryPx,
+      peakPct: 0,
+      lastPnlPct: 0,
+      openedAt: t.openedAt.getTime(),
+      mode: t.mode as TradeMode,
+      reason: t.reason,
+      adopted: false,
+    }))
+
+    // equity points for current mode
+    await this.reloadEquityPoints()
+
+    this.refreshCrewFromStats()
+    this.ready = true
+
+    if (!this.timer) {
+      this.timer = setInterval(() => {
+        this.tick().catch((e) => console.error('[engine] tick error:', e))
+      }, TICK_MS)
+    }
+    // first tick immediately
+    this.tick().catch((e) => console.error('[engine] first tick error:', e))
+  }
+
+  private dbTradeToRow(
+    t: {
+      id: string
+      mode: string
+      botKey: string
+      coin: string
+      sizeUsd: number
+      entryPx: number
+      exitPx: number | null
+      pnl: number
+      pnlPct: number
+      status: string
+      reason: string
+      exitReason: string | null
+      openedAt: Date
+      closedAt: Date | null
+    },
+    def: CrewDef
+  ): TradeRow {
+    return {
+      id: t.id,
+      botKey: t.botKey,
+      botName: def.name,
+      botColor: def.color,
+      coin: t.coin,
+      side: 'long',
+      sizeUsd: t.sizeUsd,
+      entryPx: t.entryPx,
+      exitPx: t.exitPx,
+      pnl: t.pnl,
+      pnlPct: t.pnlPct,
+      status: t.status as 'open' | 'closed',
+      reason: t.reason,
+      exitReason: t.exitReason,
+      openedAt: t.openedAt.getTime(),
+      closedAt: t.closedAt ? t.closedAt.getTime() : null,
+      heldSec: t.closedAt ? (t.closedAt.getTime() - t.openedAt.getTime()) / 1000 : null,
+      mode: t.mode as TradeMode,
+    }
+  }
+
+  private async reloadEquityPoints() {
+    const pts = await db.equityPoint.findMany({
+      where: { mode: this.settings.mode },
+      orderBy: { createdAt: 'desc' },
+      take: 240,
+    })
+    this.equityPoints = pts.reverse().map((p) => ({ ts: p.createdAt.getTime(), equity: p.equity }))
+  }
+
+  private recomputeStreak() {
+    // walk closed trades of current mode backwards, counting consecutive wins
+    const closedForMode = this.closedCache.filter((t) => t.mode === this.settings.mode)
+    let streak = 0
+    for (const t of closedForMode) {
+      if (t.pnl > 0) streak++
+      else break
+    }
+    this.streak = streak
+    this.nextStreakMilestone = STREAK_MILESTONES.find((m) => m > streak) ?? STREAK_MILESTONES[STREAK_MILESTONES.length - 1] + 50
+    this.goalNotified = false
+  }
+
+  private refreshCrewFromStats() {
+    const stats = this.botStats[this.settings.mode] ?? this.botStats.sim
+    for (const rt of this.bots.values()) {
+      const s = stats[rt.def.key] ?? { pnl: 0, wins: 0, losses: 0 }
+      rt.state.pnl = s.pnl
+      rt.state.wins = s.wins
+      rt.state.losses = s.losses
+    }
+  }
+
+  private notify(n: Omit<NotificationRow, 'id' | 'createdAt'>) {
+    const row: NotificationRow = { ...n, id: crypto.randomUUID(), createdAt: Date.now() }
+    this.notifications.unshift(row)
+    this.notifications = this.notifications.slice(0, 30)
+    this.unseenIds.add(row.id)
+  }
+
+  private liveNetwork(): LiveNetwork | null {
+    if (this.settings.mode === 'testnet') return 'testnet'
+    if (this.settings.mode === 'mainnet') return 'mainnet'
+    return null
+  }
+
+  private unrealizedFor(pos: OpenPosition): { pnl: number; pnlPct: number } {
+    if (pos.mode === 'sim') {
+      const mark = this.market.mid(pos.coin) ?? pos.entryPx
+      // paper fills happen at the live mid with no fees — keeps the demo honest about prices
+      const pnl = pos.qty * (mark - pos.entryPx)
+      return { pnl, pnlPct: pos.sizeUsd > 0 ? (pnl / pos.sizeUsd) * 100 : 0 }
+    }
+    const pnl = (pos.lastPnlPct / 100) * pos.sizeUsd
+    return { pnl, pnlPct: pos.lastPnlPct }
+  }
+
+  currentEquity(): number {
+    if (this.settings.mode === 'sim') {
+      let realized = 0
+      for (const s of Object.values(this.botStats.sim)) realized += s.pnl
+      let unrealized = 0
+      for (const p of this.positions) {
+        if (p.mode !== 'sim') continue
+        unrealized += this.unrealizedFor(p).pnl
+      }
+      return this.settings.startingEquity + realized + unrealized
+    }
+    if (this.liveAccountValue != null) return this.liveAccountValue
+    const start = this.settings.liveStartEquity ?? this.settings.startingEquity
+    let realized = 0
+    for (const s of Object.values(this.botStats[this.settings.mode] ?? {})) realized += s.pnl
+    let unrealized = 0
+    for (const p of this.positions) {
+      if (p.mode === this.settings.mode) unrealized += this.unrealizedFor(p).pnl
+    }
+    return start + realized + unrealized
+  }
+
+  private startingEquityForDisplay(): number {
+    if (this.settings.mode === 'sim') return this.settings.startingEquity
+    return this.settings.liveStartEquity ?? this.liveAccountValue ?? this.settings.startingEquity
+  }
+
+  private async tick() {
+    if (!this.ready) return
+    this.tickCount++
+    const now = Date.now()
+    await this.market.update()
+
+    if (this.settings.mode !== 'sim') {
+      if (now - this.lastLiveSyncAt > 10_000) {
+        await this.syncLive()
+        this.lastLiveSyncAt = now
+      }
+    }
+
+    await this.managePositions(now)
+    await this.tryEntries(now)
+    this.sampleEquity(now)
+    this.rotateThoughts(now)
+    this.updateBotStatuses(now)
+  }
+
+  // ---------------- live sync ----------------
+
+  private async syncLive() {
+    const network = this.liveNetwork()
+    if (!network || !this.settings.privateKey) return
+    const address =
+      this.settings.walletAddress?.trim() || deriveAddress(this.settings.privateKey)
+    const st = await liveAccountState(network, address)
+    if (!st) return
+
+    this.liveAccountValue = st.accountValue
+    if (this.settings.liveStartEquity == null && st.accountValue > 0) {
+      this.settings.liveStartEquity = st.accountValue
+      db.settings
+        .update({ where: { id: 'main' }, data: { liveStartEquity: st.accountValue } })
+        .catch(() => {})
+    }
+
+    // adopt exchange positions not tracked locally
+    for (const p of st.positions) {
+      if (p.szi <= 0) continue
+      const tracked = this.positions.some(
+        (pos) => pos.mode === this.settings.mode && pos.coin === p.coin
+      )
+      if (tracked) continue
+      const idleBot =
+        [...this.bots.values()].find(
+          (b) => !this.positions.some((pos) => pos.mode === this.settings.mode && pos.botKey === b.def.key)
+        ) ?? this.bots.get('whaleTail')!
+      const sizeUsd = p.positionValue || p.szi * p.entryPx
+      const row = await db.trade
+        .create({
+          data: {
+            mode: this.settings.mode,
+            botKey: idleBot.def.key,
+            coin: p.coin,
+            sizeUsd,
+            qty: p.szi,
+            entryPx: p.entryPx,
+            status: 'open',
+            reason: 'adopted existing position',
+          },
+        })
+        .catch(() => null)
+      if (!row) continue
+      this.positions.push({
+        tradeId: row.id,
+        botKey: idleBot.def.key,
+        coin: p.coin,
+        qty: p.szi,
+        sizeUsd,
+        entryPx: p.entryPx,
+        peakPct: Math.max(0, p.unrealizedPnl / (p.positionValue || 1)) * 100,
+        lastPnlPct: p.positionValue > 0 ? (p.unrealizedPnl / p.positionValue) * 100 : 0,
+        openedAt: Date.now(),
+        mode: this.settings.mode,
+        reason: 'adopted existing position',
+        adopted: true,
+      })
+      idleBot.state.thought = `adopted $${p.coin} from the exchange`
+      idleBot.state.thoughtAt = Date.now()
+    }
+
+    // update tracked positions from exchange data
+    for (const pos of [...this.positions]) {
+      if (pos.mode !== this.settings.mode) continue
+      const ex = st.positions.find((p) => p.coin === pos.coin && p.szi > 0)
+      if (ex) {
+        pos.lastPnlPct = ex.positionValue > 0 ? (ex.unrealizedPnl / ex.positionValue) * 100 : 0
+        pos.peakPct = Math.max(pos.peakPct, pos.lastPnlPct)
+        if (ex.entryPx > 0) pos.entryPx = ex.entryPx
+        if (ex.szi > 0) pos.qty = ex.szi
+      } else if (Date.now() - pos.openedAt > 20_000) {
+        // position vanished on the exchange (closed externally)
+        await this.finalizeClose(pos, 'closed on exchange', ex?.entryPx ?? null, (pos.lastPnlPct / 100) * pos.sizeUsd)
+      }
+    }
+  }
+
+  // ---------------- position management ----------------
+
+  private async managePositions(now: number) {
+    for (const pos of [...this.positions]) {
+      if (pos.mode !== this.settings.mode) continue
+      const def = crewDef(pos.botKey)
+
+      if (pos.mode === 'sim') {
+        const mark = this.market.mid(pos.coin)
+        if (mark == null) continue
+        const u = this.unrealizedFor(pos)
+        pos.lastPnlPct = u.pnlPct
+        pos.peakPct = Math.max(pos.peakPct, u.pnlPct)
+      }
+
+      const age = (now - pos.openedAt) / 1000
+      let exitReason: string | null = null
+      if (pos.lastPnlPct >= def.exit.tp) exitReason = 'take profit'
+      else if (pos.lastPnlPct <= -def.exit.sl) exitReason = 'stop loss'
+      else if (
+        def.exit.trail != null &&
+        pos.peakPct >= def.exit.trail &&
+        pos.lastPnlPct <= pos.peakPct - def.exit.trail
+      )
+        exitReason = 'trailing stop'
+      else if (age >= def.exit.timeStop) exitReason = 'time stop'
+
+      if (exitReason) await this.closePosition(pos, exitReason)
+    }
+  }
+
+  private async closePosition(pos: OpenPosition, reason: string) {
+    const network = this.liveNetwork()
+    let exitPx: number | null = null
+    let pnl = 0
+
+    if (pos.mode === 'sim') {
+      exitPx = this.market.mid(pos.coin) ?? pos.entryPx
+      pnl = this.unrealizedFor(pos).pnl
+    } else if (network && this.settings.privateKey) {
+      const res = await liveMarketClose(
+        network,
+        this.settings.privateKey,
+        this.settings.walletAddress,
+        pos.coin
+      )
+      if (!res.ok) {
+        const rt = this.bots.get(pos.botKey)
+        if (rt) {
+          rt.state.thought = `couldn't close $${pos.coin}: ${res.error?.slice(0, 40) ?? 'exchange error'}`
+          rt.state.thoughtAt = Date.now()
+          rt.cooldownUntil = Date.now() + 30_000
+        }
+        return
+      }
+      pnl = (pos.lastPnlPct / 100) * pos.sizeUsd
+      exitPx = this.market.mid(pos.coin) ?? pos.entryPx
+    } else {
+      return
+    }
+
+    await this.finalizeClose(pos, reason, exitPx, pnl)
+  }
+
+  private async finalizeClose(pos: OpenPosition, reason: string, exitPx: number | null, pnl: number) {
+    this.positions = this.positions.filter((p) => p.tradeId !== pos.tradeId)
+    const def = crewDef(pos.botKey)
+    const pnlPct = pos.sizeUsd > 0 ? (pnl / pos.sizeUsd) * 100 : 0
+    const closedAt = new Date()
+
+    await db.trade
+      .update({
+        where: { id: pos.tradeId },
+        data: { status: 'closed', exitPx, pnl, pnlPct, exitReason: reason, closedAt },
+      })
+      .catch(() => {})
+
+    // stats — tiny breakeven trades count as a "scratch" (neither win nor loss)
+    const isScratch = Math.abs(pnlPct) < SCRATCH_PCT
+    const stats = this.botStats[pos.mode] ?? this.botStats.sim
+    const cur = stats[pos.botKey] ?? { pnl: 0, wins: 0, losses: 0 }
+    cur.pnl += pnl
+    if (!isScratch) {
+      if (pnl > 0) cur.wins++
+      else if (pnl < 0) cur.losses++
+    }
+    stats[pos.botKey] = cur
+
+    const rt = this.bots.get(pos.botKey)
+    if (rt) {
+      rt.state.pnl = this.settings.mode === pos.mode ? cur.pnl : rt.state.pnl
+      rt.state.wins = this.settings.mode === pos.mode ? cur.wins : rt.state.wins
+      rt.state.losses = this.settings.mode === pos.mode ? cur.losses : rt.state.losses
+      rt.lastActiveAt = Date.now()
+      const cd =
+        pnl > 0
+          ? rand(def.winCooldown[0], def.winCooldown[1])
+          : rand(def.lossCooldown[0], def.lossCooldown[1])
+      rt.cooldownUntil = Date.now() + cd * 1000
+      rt.state.thought = isScratch
+        ? `flat on $${pos.coin} · ${reason}`
+        : pnl >= 0
+          ? `banked +${pnlPct.toFixed(1)}% on $${pos.coin}`
+          : `cut ${pnlPct.toFixed(1)}% on $${pos.coin}`
+      rt.state.thoughtAt = Date.now()
+    }
+
+    // streak (current mode only)
+    if (pos.mode === this.settings.mode && !isScratch) {
+      if (pnl > 0) {
+        this.streak++
+        if (this.streak >= this.nextStreakMilestone) {
+          this.notify({
+            kind: 'streak',
+            title: `Hot streak: ${this.streak} wins in a row`,
+            body: `${this.streak} wins across the crew · keep it rolling`,
+            bigValue: `🔥${this.streak}`,
+          })
+          this.nextStreakMilestone =
+            STREAK_MILESTONES.find((m) => m > this.streak) ?? this.nextStreakMilestone + 50
+        }
+      } else if (pnl < 0) {
+        this.streak = 0
+        this.nextStreakMilestone = STREAK_MILESTONES[0]
+      }
+
+      if (pnlPct >= 3.5) {
+        this.notify({
+          kind: 'bigwin',
+          botKey: pos.botKey,
+          title: `${def.name} banked +${pnlPct.toFixed(0)}% on $${pos.coin}`,
+          body: `${reason} · ${pos.coin} · held ${((closedAt.getTime() - pos.openedAt) / 1000).toFixed(0)}s`,
+          bigValue: `+${pnlPct.toFixed(0)}%`,
+        })
+      }
+    }
+
+    // closed cache
+    this.closedCache.unshift({
+      id: pos.tradeId,
+      botKey: pos.botKey,
+      botName: def.name,
+      botColor: def.color,
+      coin: pos.coin,
+      side: 'long',
+      sizeUsd: pos.sizeUsd,
+      entryPx: pos.entryPx,
+      exitPx,
+      pnl,
+      pnlPct,
+      status: 'closed',
+      reason: pos.reason,
+      exitReason: reason,
+      openedAt: pos.openedAt,
+      closedAt: closedAt.getTime(),
+      heldSec: (closedAt.getTime() - pos.openedAt) / 1000,
+      mode: pos.mode,
+    })
+    this.closedCache = this.closedCache.slice(0, 40)
+  }
+
+  // ---------------- entries ----------------
+
+  private async tryEntries(now: number) {
+    if (!this.settings.running || !this.market.feedOk) return
+    const openForMode = this.positions.filter((p) => p.mode === this.settings.mode)
+    if (openForMode.length >= MAX_OPEN) return
+    const heldCoins = new Set(openForMode.map((p) => p.coin))
+
+    const bots = [...this.bots.values()].sort(() => Math.random() - 0.5)
+    for (const rt of bots) {
+      if (openForMode.length >= MAX_OPEN) break
+      if (now < rt.cooldownUntil) continue
+      if (openForMode.some((p) => p.botKey === rt.def.key)) continue
+
+      const idleSec = (now - rt.lastActiveAt) / 1000
+      const bored = idleSec > 50
+      const sig = evaluateSignal(rt.def, this.market, bored)
+      if (!sig || heldCoins.has(sig.coin)) continue
+
+      const ok = await this.openPosition(rt, sig)
+      if (ok) {
+        heldCoins.add(sig.coin)
+        openForMode.push(this.positions[this.positions.length - 1])
+      }
+    }
+  }
+
+  private async openPosition(rt: BotRuntime, sig: Signal): Promise<boolean> {
+    const equity = this.currentEquity()
+    let sizeUsd = Math.min(25000, Math.max(40, equity * rt.def.sizing))
+    const mid = this.market.mid(sig.coin)
+    if (mid == null || mid <= 0) return false
+
+    let qty = sizeUsd / mid
+    let entryPx = mid
+
+    if (this.settings.mode !== 'sim') {
+      const network = this.liveNetwork()
+      if (!network || !this.settings.privateKey) return false
+      qty = await roundQty(sig.coin, qty)
+      if (qty <= 0 || qty * mid < 10) {
+        rt.state.thought = `$${sig.coin} order too small for the exchange`
+        rt.state.thoughtAt = Date.now()
+        rt.cooldownUntil = Date.now() + 60_000
+        return false
+      }
+      const res = await liveMarketOpen(
+        network,
+        this.settings.privateKey,
+        this.settings.walletAddress,
+        sig.coin,
+        qty
+      )
+      if (!res.ok) {
+        rt.state.thought = `order rejected: ${res.error?.slice(0, 36) ?? 'exchange error'}`
+        rt.state.thoughtAt = Date.now()
+        rt.cooldownUntil = Date.now() + 45_000
+        return false
+      }
+      entryPx = res.avgPx ?? mid
+      sizeUsd = qty * entryPx
+    }
+
+    const row = await db.trade
+      .create({
+        data: {
+          mode: this.settings.mode,
+          botKey: rt.def.key,
+          coin: sig.coin,
+          sizeUsd,
+          qty,
+          entryPx,
+          status: 'open',
+          reason: sig.reason,
+        },
+      })
+      .catch((e) => {
+        console.error(
+          '[engine] trade create failed:',
+          e instanceof Error ? e.message.split('\n')[0] : e
+        )
+        return null
+      })
+    if (!row) return false
+
+    this.positions.push({
+      tradeId: row.id,
+      botKey: rt.def.key,
+      coin: sig.coin,
+      qty,
+      sizeUsd,
+      entryPx,
+      peakPct: 0,
+      lastPnlPct: 0,
+      openedAt: Date.now(),
+      mode: this.settings.mode,
+      reason: sig.reason,
+      adopted: false,
+    })
+
+    rt.state.thought = `in $${sig.coin} · ${sig.reason}`
+    rt.state.thoughtAt = Date.now()
+    rt.lastActiveAt = Date.now()
+    return true
+  }
+
+  // ---------------- equity & thoughts ----------------
+
+  private sampleEquity(now: number) {
+    const equity = this.currentEquity()
+    this.equityPoints.push({ ts: now, equity })
+    if (this.equityPoints.length > 240) this.equityPoints.splice(0, this.equityPoints.length - 240)
+
+    if (now - this.lastEquityPersistAt > 30_000) {
+      this.lastEquityPersistAt = now
+      db.equityPoint
+        .create({ data: { mode: this.settings.mode, equity } })
+        .catch(() => {})
+      // prune old points (keep ~2000 per mode)
+      db.equityPoint
+        .deleteMany({
+          where: {
+            mode: this.settings.mode,
+            createdAt: { lt: new Date(now - 90 * 60_000) },
+          },
+        })
+        .catch(() => {})
+    }
+
+    // goal reached?
+    const start = this.startingEquityForDisplay()
+    const mult = start > 0 ? equity / start : 1
+    if (mult >= this.settings.goalMultiple && !this.goalNotified && start > 0) {
+      this.goalNotified = true
+      const wins = Object.values(this.botStats[this.settings.mode] ?? {}).reduce((a, s) => a + s.wins, 0)
+      this.notify({
+        kind: 'goal',
+        title: `Goal reached: ${this.settings.goalMultiple}×`,
+        body: `${Math.round(start).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} → ${Math.round(equity).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} · ${wins} wins across the crew`,
+        bigValue: `${this.settings.goalMultiple}×`,
+      })
+    }
+    if (mult < this.settings.goalMultiple * 0.95) this.goalNotified = false
+  }
+
+  private rotateThoughts(now: number) {
+    for (const rt of this.bots.values()) {
+      const holding = this.positions.some((p) => p.mode === this.settings.mode && p.botKey === rt.def.key)
+      if (holding) continue
+      if (now < rt.cooldownUntil) continue
+      if (now < rt.nextScanThoughtAt) continue
+      rt.nextScanThoughtAt = now + rand(18000, 42000)
+      const pool = rt.def.scanningThoughts
+      rt.state.thought = pool[Math.floor(Math.random() * pool.length)]
+      rt.state.thoughtAt = now
+    }
+  }
+
+  private updateBotStatuses(now: number) {
+    for (const rt of this.bots.values()) {
+      const holding = this.positions.find((p) => p.mode === this.settings.mode && p.botKey === rt.def.key)
+      if (holding) {
+        const u = this.unrealizedFor(holding)
+        rt.state.status = 'holding'
+        rt.state.holding = {
+          coin: holding.coin,
+          pnlPct: u.pnlPct,
+          sizeUsd: holding.sizeUsd,
+          since: holding.openedAt,
+        }
+      } else {
+        rt.state.holding = null
+        if (now < rt.cooldownUntil) rt.state.status = 'cooling'
+        else rt.state.status = this.settings.running ? 'scanning' : 'paused'
+      }
+    }
+  }
+
+  // ---------------- public API ----------------
+
+  async applySettings(payload: {
+    mode: TradeMode
+    botName: string
+    startingEquity: number
+    goalMultiple: number
+    privateKey?: string
+    walletAddress?: string
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    const mode = payload.mode
+    if (!['sim', 'testnet', 'mainnet'].includes(mode)) {
+      return { ok: false, error: 'Mode tidak valid' }
+    }
+
+    let privateKey = this.settings.privateKey
+    let walletAddress = payload.walletAddress?.trim() || this.settings.walletAddress
+
+    if (mode !== 'sim') {
+      const newKey = payload.privateKey?.trim()
+      if (newKey) {
+        if (!validatePrivateKey(newKey)) {
+          return { ok: false, error: 'Private key tidak valid (harus 0x + 64 hex)' }
+        }
+        privateKey = newKey
+      }
+      if (!privateKey) {
+        return { ok: false, error: 'Private key wajib diisi untuk mode live' }
+      }
+      if (!walletAddress) walletAddress = deriveAddress(privateKey)
+    }
+
+    const modeChanged = mode !== this.settings.mode
+    this.settings.mode = mode
+    this.settings.botName = payload.botName
+    this.settings.startingEquity = Math.max(10, payload.startingEquity)
+    this.settings.goalMultiple = Math.min(100, Math.max(1.05, payload.goalMultiple))
+    this.settings.privateKey = privateKey
+    this.settings.walletAddress = walletAddress ?? null
+
+    if (modeChanged && mode !== 'sim') {
+      this.settings.liveStartEquity = null
+      this.liveAccountValue = null
+    }
+    if (modeChanged) {
+      this.goalNotified = false
+      this.recomputeStreak()
+      this.refreshCrewFromStats()
+      await this.reloadEquityPoints().catch(() => {})
+    }
+
+    await db.settings
+      .update({
+        where: { id: 'main' },
+        data: {
+          mode: this.settings.mode,
+          botName: this.settings.botName,
+          startingEquity: this.settings.startingEquity,
+          goalMultiple: this.settings.goalMultiple,
+          privateKey,
+          walletAddress: this.settings.walletAddress,
+          liveStartEquity: this.settings.liveStartEquity,
+        },
+      })
+      .catch(() => {})
+
+    return { ok: true }
+  }
+
+  async control(action: string, ids?: string[]) {
+    switch (action) {
+      case 'pause':
+        this.settings.running = false
+        await db.settings.update({ where: { id: 'main' }, data: { running: false } }).catch(() => {})
+        break
+      case 'resume':
+        this.settings.running = true
+        await db.settings.update({ where: { id: 'main' }, data: { running: true } }).catch(() => {})
+        break
+      case 'closeAll': {
+        const open = this.positions.filter((p) => p.mode === this.settings.mode)
+        for (const pos of open) {
+          await this.closePosition(pos, 'manual close')
+        }
+        break
+      }
+      case 'resetSim': {
+        await db.trade.deleteMany({ where: { mode: 'sim' } })
+        await db.equityPoint.deleteMany({ where: { mode: 'sim' } })
+        this.botStats.sim = {}
+        this.positions = this.positions.filter((p) => p.mode !== 'sim')
+        this.closedCache = this.closedCache.filter((t) => t.mode !== 'sim')
+        this.equityPoints = []
+        this.streak = 0
+        this.goalNotified = false
+        this.refreshCrewFromStats()
+        for (const rt of this.bots.values()) {
+          rt.cooldownUntil = 0
+          rt.lastActiveAt = Date.now()
+          rt.state.thought = 'fresh start — scanning…'
+          rt.state.thoughtAt = Date.now()
+        }
+        break
+      }
+      case 'seen':
+        if (ids) for (const id of ids) this.unseenIds.delete(id)
+        break
+    }
+  }
+
+  snapshot(): EngineSnapshot {
+    const mode = this.settings.mode
+    const start = this.startingEquityForDisplay()
+    const equity = this.currentEquity()
+    const pnl = equity - start
+    const stats = this.botStats[mode] ?? this.botStats.sim
+    let wins = 0
+    let losses = 0
+    for (const s of Object.values(stats)) {
+      wins += s.wins
+      losses += s.losses
+    }
+    const tradesClosed = wins + losses
+
+    const openRows: TradeRow[] = this.positions
+      .filter((p) => p.mode === mode)
+      .map((p) => {
+        const def = crewDef(p.botKey)
+        const u = this.unrealizedFor(p)
+        return {
+          id: p.tradeId,
+          botKey: p.botKey,
+          botName: def.name,
+          botColor: def.color,
+          coin: p.coin,
+          side: 'long',
+          sizeUsd: p.sizeUsd,
+          entryPx: p.entryPx,
+          exitPx: null,
+          pnl: u.pnl,
+          pnlPct: u.pnlPct,
+          status: 'open' as const,
+          reason: p.reason,
+          exitReason: null,
+          openedAt: p.openedAt,
+          closedAt: null,
+          heldSec: null,
+          mode: p.mode,
+        }
+      })
+
+    const trades = [...openRows, ...this.closedCache.filter((t) => t.mode === mode)]
+      .sort((a, b) => b.openedAt - a.openedAt)
+      .slice(0, 30)
+
+    // downsample equity curve to ~140 points
+    const curve = this.equityPoints
+    const step = Math.max(1, Math.ceil(curve.length / 140))
+    const equityCurve = curve.filter((_, i) => i % step === 0 || i === curve.length - 1)
+
+    return {
+      ts: Date.now(),
+      feedOk: this.market.feedOk,
+      mode,
+      running: this.settings.running,
+      botName: this.settings.botName,
+      walletAddress: this.settings.walletAddress,
+      startingEquity: start,
+      equity,
+      pnl,
+      pnlPct: start > 0 ? (pnl / start) * 100 : 0,
+      multiple: start > 0 ? equity / start : 1,
+      streak: this.streak,
+      tradesClosed,
+      wins,
+      losses,
+      winRate: tradesClosed > 0 ? wins / tradesClosed : 0,
+      goal: { target: this.settings.goalMultiple, done: equity / (start || 1) >= this.settings.goalMultiple },
+      equityCurve,
+      crew: [...this.bots.values()].map((rt) => ({ ...rt.state })),
+      trades,
+      notifications: this.notifications.filter((n) => this.unseenIds.has(n.id)).slice(0, 5),
+      openCount: openRows.length,
+      liveAccountValue: this.liveAccountValue,
+    }
+  }
+}
+
+const g = globalThis as unknown as { __grokEngine?: Engine }
+
+export function ensureEngine(): Engine {
+  if (!g.__grokEngine) {
+    g.__grokEngine = new Engine()
+    g.__grokEngine.init().catch((e) => console.error('[engine] init error:', e))
+  }
+  return g.__grokEngine
+}
