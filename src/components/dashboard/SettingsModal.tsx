@@ -23,6 +23,7 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
+  Wallet,
   Zap,
 } from 'lucide-react'
 import type { EngineSnapshot, RiskProfile, TradeMode } from '@/lib/shared-types'
@@ -68,6 +69,16 @@ const PROFILES: { key: RiskProfile; name: string; desc: string }[] = [
   { key: 'chill', name: 'Chill', desc: 'Hold lebih lama · TP/SL longgar' },
   { key: 'balanced', name: 'Balanced', desc: 'Seimbang antara sabar dan cepat' },
   { key: 'turbo', name: 'Turbo', desc: 'Scalp cepat · cut loss disiplin' },
+]
+
+/** preset modal — dari yang paling kecil yang masih layak sampai standar */
+const CAPITAL_PRESETS: { v: number; label: string }[] = [
+  { v: 25, label: 'Mini' },
+  { v: 50, label: 'Kecil' },
+  { v: 100, label: 'Starter' },
+  { v: 250, label: 'Wajar' },
+  { v: 500, label: 'Serius' },
+  { v: 1000, label: 'Standar' },
 ]
 
 export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsModalProps) {
@@ -119,7 +130,10 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
   }, [open, state])
 
   const isLive = mode !== 'sim'
-  const equityNow = state?.equity ?? (Number(startingEquity) || 1000)
+  // estimates follow what the form will save: SIM → the modal field, live → wallet equity
+  const equityNow = isLive
+    ? state?.equity ?? (Number(startingEquity) || 1000)
+    : Number(startingEquity) || state?.equity || 1000
   const marginEst = (equityNow * positionPct) / 100
   const notionalEst = marginEst * leverage
   const equityImpactPerPctMove = ((marginEst * leverage) / equityNow) * 100
@@ -638,39 +652,115 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
           </div>
         )}
 
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="eq" className="text-[12px] font-extrabold">
-              Modal awal (SIM)
-            </Label>
-            <Input
-              id="eq"
-              type="number"
-              min={100}
-              step={100}
-              value={startingEquity}
-              onChange={(e) => setStartingEquity(e.target.value)}
-              className="h-11 rounded-xl border-[#ECECEE] text-[14px] font-extrabold"
-            />
+        {/* ---------- modal: preset & nominal (berlaku semua mode) ---------- */}
+        <div className="mt-4 rounded-2xl border-2 border-[#ECECEE] p-4">
+          <p className="flex items-center gap-1.5 text-[13px] font-black tracking-tight">
+            <Wallet size={15} strokeWidth={2.4} aria-hidden /> Modal awal
+          </p>
+          <p className="mt-1 text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+            Berlaku di <span className="font-extrabold text-[#17171C]">semua mode</span> — SIM ·
+            TESTNET · MAINNET. Preset kecil enak untuk uji coba dulu di SIM.
+          </p>
+
+          {/* preset chips */}
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {CAPITAL_PRESETS.map((p) => {
+              const active = Number(startingEquity) === p.v
+              return (
+                <button
+                  key={p.v}
+                  type="button"
+                  onClick={() => setStartingEquity(String(p.v))}
+                  className={`rounded-xl border-2 px-2 py-2 text-center transition-all ${
+                    active
+                      ? 'border-[#17171C] bg-[#17171C] text-white'
+                      : 'border-[#ECECEE] bg-white text-[#17171C] hover:border-[#D6D6DB]'
+                  }`}
+                >
+                  <span className="block text-[13.5px] font-black tabular-nums">${p.v}</span>
+                  <span
+                    className={`block text-[10px] font-bold ${
+                      active ? 'text-white/70' : 'text-[#8E8E93]'
+                    }`}
+                  >
+                    {p.label}
+                  </span>
+                </button>
+              )
+            })}
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="goal" className="text-[12px] font-extrabold">
-              Target profit
-            </Label>
-            <div className="flex h-11 items-center gap-1.5 rounded-xl border border-[#ECECEE] px-3">
+
+          {/* nominal input + goal */}
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="eq" className="text-[12px] font-extrabold">
+                Nominal sendiri (USD)
+              </Label>
               <Input
-                id="goal"
+                id="eq"
                 type="number"
-                min={1.05}
-                max={5}
-                step={0.25}
-                value={goalMultiple}
-                onChange={(e) => setGoalMultiple(e.target.value)}
-                className="h-full border-0 p-0 text-[14px] font-extrabold shadow-none focus-visible:ring-0"
+                min={10}
+                step={5}
+                value={startingEquity}
+                onChange={(e) => setStartingEquity(e.target.value)}
+                className="h-11 rounded-xl border-[#ECECEE] text-[14px] font-extrabold"
               />
-              <span className="text-[14px] font-black text-[#8E8E93]">×</span>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="goal" className="text-[12px] font-extrabold">
+                Target profit
+              </Label>
+              <div className="flex h-11 items-center gap-1.5 rounded-xl border border-[#ECECEE] px-3">
+                <Input
+                  id="goal"
+                  type="number"
+                  min={1.05}
+                  max={5}
+                  step={0.25}
+                  value={goalMultiple}
+                  onChange={(e) => setGoalMultiple(e.target.value)}
+                  className="h-full border-0 p-0 text-[14px] font-extrabold shadow-none focus-visible:ring-0"
+                />
+                <span className="text-[14px] font-black text-[#8E8E93]">×</span>
+              </div>
             </div>
           </div>
+
+          {/* kelayakan order vs minimum exchange $10 */}
+          {(() => {
+            const estEq = Number(startingEquity) || 1000
+            const estMargin = Math.min(estEq, Math.max(5, (estEq * positionPct) / 100))
+            const estCap = estMargin * leverage
+            const ok = estCap >= 20
+            const thin = estCap >= 10 && estCap < 20
+            return (
+              <div
+                className={`mt-3 rounded-xl px-3 py-2.5 ${
+                  ok ? 'bg-[#F0FDF4]' : thin ? 'bg-[#FEF3C7]' : 'bg-[#FEF2F2]'
+                }`}
+              >
+                <p
+                  className={`text-[11.5px] font-bold leading-snug ${
+                    ok ? 'text-[#15803D]' : thin ? 'text-[#B45309]' : 'text-[#DC2626]'
+                  }`}
+                >
+                  {ok
+                    ? `Layak — ukuran order maks ≈ $${estCap.toFixed(0)} per trade (minimum exchange $10). Modal $25 adalah paling kecil yang masih sehat.`
+                    : thin
+                      ? `Pas-pasan — order maks ≈ $${estCap.toFixed(0)}. Stop lebar bisa membuat ticket ditolak (min $10). Naikkan leverage atau modal.`
+                      : `Kegedean resikonya dibalik modal — order maks ≈ $${estCap.toFixed(
+                          0
+                        )}, di bawah minimum exchange $10. Naikkan leverage / ukuran posisi, atau pilih modal lebih besar.`}
+                </p>
+              </div>
+            )
+          })()}
+
+          <p className="mt-2 text-[10.5px] font-semibold leading-snug text-[#B4B4B9]">
+            Ganti nominal &amp; mode SIM aktif → SIM otomatis di-reset (riwayat bersih) supaya
+            equity mulai persis dari modal baru. Di mode live, PnL tetap dihitung dari saldo
+            wallet asli.
+          </p>
         </div>
 
         <div className="mt-3 space-y-1.5">

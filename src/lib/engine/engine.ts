@@ -1179,9 +1179,13 @@ export class Engine {
     }
 
     const modeChanged = mode !== this.settings.mode
+    // modal change (all modes share one startingEquity): a SIM modal change
+    // wipes SIM history so equity starts exactly at the new modal — clean monitoring
+    const newEquity = Math.max(10, Math.round(payload.startingEquity || 0) * 100) / 100
+    const equityChanged = newEquity !== this.settings.startingEquity
     this.settings.mode = mode
     this.settings.botName = payload.botName
-    this.settings.startingEquity = Math.max(10, payload.startingEquity)
+    this.settings.startingEquity = newEquity
     this.settings.goalMultiple = Math.min(5, Math.max(1.05, payload.goalMultiple))
     this.settings.leverage = Math.min(20, Math.max(1, Math.round(payload.leverage ?? this.settings.leverage)))
     this.settings.positionPct = Math.min(1, Math.max(0.05, payload.positionPct ?? this.settings.positionPct))
@@ -1215,6 +1219,15 @@ export class Engine {
       this.refreshCrewFromStats()
       await this.reloadEquityPoints().catch(() => {})
     }
+    // modal awal berubah + mode SIM → reset otomatis: riwayat bersih dari modal baru
+    if (equityChanged && mode === 'sim') {
+      await this.resetSimInternal()
+      this.notify({
+        kind: 'info',
+        title: 'SIM dimulai dari modal baru',
+        body: `Modal awal diganti ke $${newEquity.toFixed(0)} — riwayat SIM di-reset, equity mulai pas $${newEquity.toFixed(0)}.`,
+      })
+    }
 
     await db.settings
       .update({
@@ -1244,6 +1257,32 @@ export class Engine {
     return { ok: true }
   }
 
+  /** wipe SIM history + open sim positions and start clean from the current startingEquity */
+  private async resetSimInternal() {
+    await db.trade.deleteMany({ where: { mode: 'sim' } })
+    await db.equityPoint.deleteMany({ where: { mode: 'sim' } })
+    this.botStats.sim = {}
+    this.positions = this.positions.filter((p) => p.mode !== 'sim')
+    this.closedCache = this.closedCache.filter((t) => t.mode !== 'sim')
+    this.equityPoints = []
+    this.streak = 0
+    this.goalNotified = false
+    this.form.clear()
+    this.coinBlock.clear()
+    this.lastVetoThoughtAt.clear()
+    this.smart = { scans: 0, vetoes: 0, entries: 0, windowStart: Date.now() }
+    for (const rt of this.bots.values()) rt.state.score = null
+    this.rebuildLedger()
+    this.risk.reset() // a fresh SIM start also clears the daily latch
+    this.refreshCrewFromStats()
+    for (const rt of this.bots.values()) {
+      rt.cooldownUntil = 0
+      rt.lastActiveAt = Date.now()
+      rt.state.thought = 'mulai baru — memindai…'
+      rt.state.thoughtAt = Date.now()
+    }
+  }
+
   async control(action: string, ids?: string[]) {
     switch (action) {
       case 'pause':
@@ -1262,28 +1301,7 @@ export class Engine {
         break
       }
       case 'resetSim': {
-        await db.trade.deleteMany({ where: { mode: 'sim' } })
-        await db.equityPoint.deleteMany({ where: { mode: 'sim' } })
-        this.botStats.sim = {}
-        this.positions = this.positions.filter((p) => p.mode !== 'sim')
-        this.closedCache = this.closedCache.filter((t) => t.mode !== 'sim')
-        this.equityPoints = []
-        this.streak = 0
-        this.goalNotified = false
-        this.form.clear()
-        this.coinBlock.clear()
-        this.lastVetoThoughtAt.clear()
-        this.smart = { scans: 0, vetoes: 0, entries: 0, windowStart: Date.now() }
-        for (const rt of this.bots.values()) rt.state.score = null
-        this.rebuildLedger()
-        this.risk.reset() // a fresh SIM start also clears the daily latch
-        this.refreshCrewFromStats()
-        for (const rt of this.bots.values()) {
-          rt.cooldownUntil = 0
-          rt.lastActiveAt = Date.now()
-          rt.state.thought = 'mulai baru — memindai…'
-          rt.state.thoughtAt = Date.now()
-        }
+        await this.resetSimInternal()
         break
       }
       case 'resetDailyStop':
