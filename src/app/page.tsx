@@ -1,16 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Settings, Pause, Play, ShieldAlert } from 'lucide-react'
+import { Settings, ShieldAlert, Pause, Play } from 'lucide-react'
 import type { EngineSnapshot, NotificationRow } from '@/lib/shared-types'
 import { fmtPct, fmtSignedUsd, fmtUsd } from '@/lib/format'
 import { BotAvatar, HeadBotAvatar } from '@/components/dashboard/BotAvatar'
 import { Sparkline } from '@/components/dashboard/Sparkline'
 import { CrewCard } from '@/components/dashboard/CrewCard'
 import { TradesCard } from '@/components/dashboard/TradesCard'
+import { ActivityCard } from '@/components/dashboard/ActivityCard'
 import { GoalCard } from '@/components/dashboard/GoalCard'
 import { IslandPill } from '@/components/dashboard/IslandPill'
+import { TickerStrip } from '@/components/dashboard/TickerStrip'
 import { Toasts } from '@/components/dashboard/Toasts'
+import { ChartModal } from '@/components/dashboard/ChartModal'
 import { SettingsModal } from '@/components/dashboard/SettingsModal'
 
 interface Floater {
@@ -21,6 +24,7 @@ interface Floater {
 export default function Home() {
   const [state, setState] = useState<EngineSnapshot | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [chartCoin, setChartCoin] = useState<string | null>(null)
   const [floaters, setFloaters] = useState<Floater[]>([])
   const [toasts, setToasts] = useState<NotificationRow[]>([])
   const prevEquity = useRef<number | null>(null)
@@ -79,6 +83,10 @@ export default function Home() {
   }).split('.')
   const isLive = state?.mode === 'mainnet' || state?.mode === 'testnet'
 
+  const openChart = useCallback((coin: string) => {
+    setChartCoin(coin.includes(':') ? coin : coin.toUpperCase())
+  }, [])
+
   async function quickToggleRun() {
     if (!state) return
     await fetch('/api/control', {
@@ -96,13 +104,13 @@ export default function Home() {
 
       <main className="mx-auto w-full max-w-[460px] flex-1 px-4 pb-8 pt-16">
         {/* ---------- header ---------- */}
-        <header className="mb-4 flex items-center gap-3">
+        <header className="mb-3 flex items-center gap-3">
           <HeadBotAvatar size={54} className="shrink-0 rounded-[16px] shadow-md" />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-[26px] font-black leading-tight tracking-tight">
               {state?.botName ?? 'Grok Bot'}
             </h1>
-            <p className="text-[14px] font-bold text-[#8E8E93]">Crew · 5 bots on shift</p>
+            <p className="text-[14px] font-bold text-[#8E8E93]">Hyperliquid perps · 5 agents</p>
           </div>
           <div className="flex items-center gap-1.5">
             <button
@@ -121,28 +129,24 @@ export default function Home() {
             </button>
             <div className="flex items-center gap-1.5 rounded-full bg-white py-1.5 pl-2.5 pr-3 shadow-sm">
               <span className="relative flex h-2 w-2">
-                <span className="animate-soft-pulse absolute inline-flex h-full w-full rounded-full bg-[#30D158]" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#30D158]" />
+                {state?.feedOk && (
+                  <span className="animate-soft-pulse absolute inline-flex h-full w-full rounded-full bg-[#30D158]" />
+                )}
+                <span
+                  className={`relative inline-flex h-2 w-2 rounded-full ${state?.feedOk ? 'bg-[#30D158]' : 'bg-[#FF9F0A]'}`}
+                />
               </span>
-              <span className="text-[13px] font-extrabold">5 online</span>
+              <span className="text-[13px] font-extrabold">{state?.feedOk ? 'Live' : 'Offline'}</span>
             </div>
           </div>
         </header>
 
+        {/* ---------- live ticker ---------- */}
+        <TickerStrip ticker={state?.ticker ?? []} onPick={openChart} />
+
         {/* ---------- equity block ---------- */}
-        <section aria-label="Equity">
+        <section aria-label="Equity" className="mt-4">
           <div className="mb-0.5 flex items-center gap-2">
-            <span
-              className={`rounded-lg px-2 py-[3px] text-[12px] font-black text-white ${
-                state?.mode === 'mainnet'
-                  ? 'bg-[#FF4D00]'
-                  : state?.mode === 'testnet'
-                    ? 'bg-[#22B8CF]'
-                    : 'bg-[#17171C]'
-              }`}
-            >
-              {state?.mode === 'mainnet' ? 'LIVE' : state?.mode === 'testnet' ? 'TESTNET' : 'SIM'}
-            </span>
             <p className="text-[14px] font-bold text-[#8E8E93]">
               {isLive ? 'Account value' : 'Equity'} · started with{' '}
               {fmtUsd(state?.startingEquity ?? 0, 0)}
@@ -222,11 +226,20 @@ export default function Home() {
             crew={state?.crew ?? []}
             openCount={state?.openCount ?? 0}
             totalWins={state?.crew.reduce((a, b) => a + b.wins, 0) ?? 0}
+            pairsCount={state?.pairsCount ?? 0}
+            onPickCoin={openChart}
+          />
+          <ActivityCard
+            trades={state?.trades ?? []}
+            wins={state?.wins ?? 0}
+            losses={state?.losses ?? 0}
+            onPickCoin={openChart}
           />
           <TradesCard
             trades={state?.trades ?? []}
             wins={state?.wins ?? 0}
             losses={state?.losses ?? 0}
+            onPickCoin={openChart}
           />
           <GoalCard goal={state?.goal.target ?? 2} multiple={state?.multiple ?? 1} />
         </div>
@@ -259,8 +272,9 @@ export default function Home() {
       <footer className="mt-auto border-t border-black/5 bg-white/70 pb-[env(safe-area-inset-bottom)] backdrop-blur">
         <div className="mx-auto w-full max-w-[460px] px-4 py-3.5 text-center">
           <p className="text-[11px] font-bold leading-relaxed text-[#B4B4B9]">
-            SIM mode = paper money with live Hyperliquid prices. LIVE modes send real orders —
-            use an agent wallet with limited funds. Not financial advice. DYOR.
+            SIM = paper money, real mainnet prices. TESTNET/MAINNET send real orders —
+            exchange minimum <span className="text-[#8E8E93]">$10</span> per order. Use an agent
+            wallet with limited funds. Not financial advice. DYOR.
           </p>
         </div>
       </footer>
@@ -271,6 +285,7 @@ export default function Home() {
         state={state}
         onSaved={refresh}
       />
+      <ChartModal coin={chartCoin} onOpenChange={(open) => !open && setChartCoin(null)} />
     </div>
   )
 }

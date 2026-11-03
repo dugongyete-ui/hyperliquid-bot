@@ -24,6 +24,12 @@ export const UNIVERSE = [
   'OP', 'NEAR', 'TIA', 'WIF', 'BONK', 'PEPE', 'TRUMP', 'FARTCOIN', 'HYPE', 'JUP',
 ]
 
+export interface TickerRow {
+  coin: string
+  px: number
+  changePct: number
+}
+
 const HISTORY_MAX = 200
 
 async function infoPost<T>(body: unknown, timeoutMs = 4500): Promise<T> {
@@ -45,13 +51,20 @@ export class MarketData {
   book = new Map<string, BookTop>()
   feedOk = true
   lastUpdateAt = 0
+  pairsCount = 0
+  ticker: TickerRow[] = []
 
   private failures = 0
   private tick = 0
+  private lastMetaAt = 0
 
   async update() {
     this.tick++
     const now = Date.now()
+    if (now - this.lastMetaAt > 45_000) {
+      this.lastMetaAt = now
+      this.refreshMeta().catch(() => {})
+    }
     try {
       const raw = await infoPost<Record<string, string>>({ type: 'allMids' })
       for (const coin of UNIVERSE) {
@@ -128,6 +141,29 @@ export class MarketData {
       bidSz: parseFloat(bids[0].sz),
       askSz: parseFloat(asks[0].sz),
     })
+  }
+
+  /** perp universe + 24h movers for the ticker strip (top by 24h volume) */
+  private async refreshMeta() {
+    const raw = await infoPost<[unknown, Array<Record<string, string>>]>({
+      type: 'metaAndAssetCtxs',
+    })
+    const universe = (raw[0] as { universe?: Array<{ name?: string }> }).universe ?? []
+    const ctxs = raw[1] ?? []
+    this.pairsCount = universe.length
+    const rows: Array<TickerRow & { vlm: number }> = []
+    for (let i = 0; i < Math.min(universe.length, ctxs.length); i++) {
+      const name = universe[i]?.name
+      const ctx = ctxs[i]
+      if (!name || !ctx) continue
+      const px = parseFloat(ctx.markPx)
+      const prev = parseFloat(ctx.prevDayPx)
+      const vlm = parseFloat(ctx.dayNtlVlm)
+      if (!isFinite(px) || !isFinite(prev) || prev <= 0 || !isFinite(vlm)) continue
+      rows.push({ coin: name, px, changePct: (px / prev - 1) * 100, vlm })
+    }
+    rows.sort((a, b) => b.vlm - a.vlm)
+    this.ticker = rows.slice(0, 24).map(({ coin, px, changePct }) => ({ coin, px, changePct }))
   }
 
   /** offline fallback: gentle random walk so the app stays alive without internet */

@@ -48,6 +48,12 @@ export interface EquityPointRow {
   equity: number
 }
 
+export interface TickerRow {
+  coin: string
+  px: number
+  changePct: number
+}
+
 export interface NotificationRow {
   id: string
   kind: 'goal' | 'streak' | 'bigwin' | 'info' | 'error'
@@ -82,6 +88,8 @@ export interface EngineSnapshot {
   notifications: NotificationRow[]
   openCount: number
   liveAccountValue: number | null
+  pairsCount: number
+  ticker: TickerRow[]
 }
 
 export interface SettingsPayload {

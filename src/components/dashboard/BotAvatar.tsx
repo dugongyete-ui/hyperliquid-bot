@@ -3,6 +3,7 @@
 import { coinMeta } from '@/lib/coins'
 
 export type FaceVariant = 'focused' | 'happy' | 'sparkle' | 'blush' | 'smirk'
+export type BotStatus = 'scanning' | 'holding' | 'cooling' | 'paused'
 
 interface BotAvatarProps {
   face: FaceVariant
@@ -10,20 +11,42 @@ interface BotAvatarProps {
   size?: number
   className?: string
   breathe?: boolean
+  status?: BotStatus
+  pnlPct?: number
 }
 
 /**
  * Cute round robot with side knobs, antenna, dark face screen and
  * expressive white eyes — drawn fully in SVG so it scales crisply.
+ * The face is alive: it blinks, looks around while scanning, hops when
+ * its position is in profit and dozes off while cooling down.
  */
-export function BotAvatar({ face, color, size = 72, className, breathe }: BotAvatarProps) {
+export function BotAvatar({
+  face,
+  color,
+  size = 72,
+  className,
+  breathe,
+  status,
+  pnlPct = 0,
+}: BotAvatarProps) {
   const gid = `g-${face}-${color.replace('#', '')}`
+  const mood: 'up' | 'down' | 'flat' = pnlPct > 0.5 ? 'up' : pnlPct < -0.5 ? 'down' : 'flat'
+  const sleeping = status === 'cooling' || status === 'paused'
+  const wrapper =
+    (sleeping ? 'animate-sleep ' : '') +
+    (status === 'holding' && mood === 'up' ? 'animate-hop ' : '') +
+    (breathe && !sleeping && !(status === 'holding' && mood === 'up') ? 'animate-breathe ' : '') +
+    'bot-alive ' +
+    (status === 'scanning' ? 'bot-look ' : '') +
+    (className ?? '')
+
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 120 116"
-      className={breathe ? `animate-breathe ${className ?? ''}` : className}
+      className={wrapper.trim()}
       role="img"
       aria-label="Cute robot avatar"
     >
@@ -35,8 +58,10 @@ export function BotAvatar({ face, color, size = 72, className, breathe }: BotAva
       </defs>
 
       {/* antenna */}
-      <circle cx="60" cy="12" r="7.5" fill={`url(#${gid})`} />
-      <rect x="57.5" y="16" width="5" height="12" rx="2.5" fill={`url(#${gid})`} />
+      <g className="bot-antenna">
+        <circle cx="60" cy="12" r="7.5" fill={`url(#${gid})`} />
+        <rect x="57.5" y="16" width="5" height="12" rx="2.5" fill={`url(#${gid})`} />
+      </g>
 
       {/* side knobs */}
       <circle cx="15" cy="66" r="10" fill={`url(#${gid})`} />
@@ -50,48 +75,61 @@ export function BotAvatar({ face, color, size = 72, className, breathe }: BotAva
       {/* face screen */}
       <rect x="27" y="46" width="66" height="42" rx="21" fill="#17171C" />
 
-      {face === 'focused' && (
-        <g>
-          <circle cx="46" cy="63" r="5" fill="white" />
-          <circle cx="74" cy="63" r="5" fill="white" />
-          <path d="M52 75 H68" stroke="white" strokeWidth="4.5" strokeLinecap="round" />
-        </g>
-      )}
+      <g className="bot-eyes">
+        {face === 'focused' && (
+          <g>
+            <circle cx="46" cy="63" r="5" fill="white" />
+            <circle cx="74" cy="63" r="5" fill="white" />
+            <path d="M52 75 H68" stroke="white" strokeWidth="4.5" strokeLinecap="round" />
+          </g>
+        )}
 
-      {face === 'happy' && (
-        <g>
-          <path d="M39 65 Q46 56 53 65" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
-          <path d="M67 65 Q74 56 81 65" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
-          <path d="M53 73 Q60 79 67 73" stroke="white" strokeWidth="4" strokeLinecap="round" fill="none" />
-        </g>
-      )}
+        {face === 'happy' && (
+          <g>
+            <path d="M39 65 Q46 56 53 65" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
+            <path d="M67 65 Q74 56 81 65" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
+            <path d="M53 73 Q60 79 67 73" stroke="white" strokeWidth="4" strokeLinecap="round" fill="none" />
+          </g>
+        )}
 
-      {face === 'sparkle' && (
-        <g>
-          <circle cx="46" cy="63" r="7" fill="white" />
-          <circle cx="74" cy="63" r="7" fill="white" />
-          <circle cx="47.5" cy="61.5" r="2.2" fill="#17171C" />
-          <circle cx="75.5" cy="61.5" r="2.2" fill="#17171C" />
-          <path d="M53 76 H67" stroke="white" strokeWidth="4" strokeLinecap="round" />
-        </g>
-      )}
+        {face === 'sparkle' && (
+          <g>
+            <circle cx="46" cy="63" r="7" fill="white" />
+            <circle cx="74" cy="63" r="7" fill="white" />
+            <circle cx="47.5" cy="61.5" r="2.2" fill="#17171C" />
+            <circle cx="75.5" cy="61.5" r="2.2" fill="#17171C" />
+            <path d="M53 76 H67" stroke="white" strokeWidth="4" strokeLinecap="round" />
+          </g>
+        )}
 
-      {face === 'blush' && (
-        <g>
-          <path d="M39 64 Q46 55 53 64" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
-          <path d="M67 64 Q74 55 81 64" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
-          <path d="M49 71 Q60 83 71 71 Z" fill="white" />
-          <ellipse cx="33" cy="76" rx="5.5" ry="3.5" fill="#FB7185" opacity="0.85" />
-          <ellipse cx="87" cy="76" rx="5.5" ry="3.5" fill="#FB7185" opacity="0.85" />
-        </g>
-      )}
+        {face === 'blush' && (
+          <g>
+            <path d="M39 64 Q46 55 53 64" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
+            <path d="M67 64 Q74 55 81 64" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
+            <path d="M49 71 Q60 83 71 71 Z" fill="white" />
+            <ellipse cx="33" cy="76" rx="5.5" ry="3.5" fill="#FB7185" opacity="0.85" />
+            <ellipse cx="87" cy="76" rx="5.5" ry="3.5" fill="#FB7185" opacity="0.85" />
+          </g>
+        )}
 
-      {face === 'smirk' && (
-        <g>
-          <path d="M40 63 H52" stroke="white" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M68 63 H80" stroke="white" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M52 73 Q61 78 70 70" stroke="white" strokeWidth="4" strokeLinecap="round" fill="none" />
-        </g>
+        {face === 'smirk' && (
+          <g>
+            <path d="M40 63 H52" stroke="white" strokeWidth="4.5" strokeLinecap="round" />
+            <path d="M68 63 H80" stroke="white" strokeWidth="4.5" strokeLinecap="round" />
+            <path d="M52 73 Q61 78 70 70" stroke="white" strokeWidth="4" strokeLinecap="round" fill="none" />
+          </g>
+        )}
+      </g>
+
+      {sleeping && (
+        <text x="88" y="52" fontSize="15" fontWeight="800" fill="#8E8E93" className="animate-soft-pulse">
+          z
+        </text>
+      )}
+      {status === 'holding' && mood === 'down' && (
+        <text x="86" y="46" fontSize="14" fontWeight="800">
+          💧
+        </text>
       )}
     </svg>
   )
@@ -104,7 +142,7 @@ export function HeadBotAvatar({ size = 56, className }: { size?: number; classNa
       width={size}
       height={size}
       viewBox="0 0 100 100"
-      className={className}
+      className={`bot-alive ${className ?? ''}`}
       role="img"
       aria-label="Bot app icon"
     >
@@ -115,47 +153,10 @@ export function HeadBotAvatar({ size = 56, className }: { size?: number; classNa
         </linearGradient>
       </defs>
       <rect width="100" height="100" rx="27" fill="url(#headbot-g)" />
-      <rect x="27" y="33" width="15" height="34" rx="7.5" fill="white" />
-      <rect x="58" y="33" width="15" height="34" rx="7.5" fill="white" />
+      <g className="bot-eyes" style={{ transformOrigin: '50px 50px', transformBox: 'view-box' }}>
+        <rect x="27" y="33" width="15" height="34" rx="7.5" fill="white" />
+        <rect x="58" y="33" width="15" height="34" rx="7.5" fill="white" />
+      </g>
     </svg>
-  )
-}
-
-/** Small round coin icon with brand color + emoji/letter, with optional agent badge. */
-export function CoinIcon({
-  coin,
-  size = 40,
-  badgeColor,
-  badgeFace,
-}: {
-  coin: string
-  size?: number
-  badgeColor?: string
-  badgeFace?: FaceVariant
-}) {
-  const meta = coinMeta(coin)
-  const bg = meta.bg
-    ? `linear-gradient(135deg, ${meta.color}, ${meta.bg})`
-    : `linear-gradient(135deg, ${meta.color}, ${meta.color}CC)`
-  const isEmoji = /\p{Extended_Pictographic}/u.test(meta.label)
-  return (
-    <div className="relative shrink-0" style={{ width: size, height: size }}>
-      <div
-        className="flex h-full w-full items-center justify-center rounded-full shadow-sm"
-        style={{ background: bg }}
-      >
-        <span
-          className="font-extrabold text-white leading-none"
-          style={{ fontSize: isEmoji ? size * 0.44 : size * 0.42, paddingTop: isEmoji ? 2 : 0 }}
-        >
-          {meta.label}
-        </span>
-      </div>
-      {badgeColor && badgeFace && (
-        <div className="absolute -bottom-1 -left-1 rounded-full bg-white p-[2px] shadow-md">
-          <BotAvatar face={badgeFace} color={badgeColor} size={Math.max(16, size * 0.44)} />
-        </div>
-      )}
-    </div>
   )
 }

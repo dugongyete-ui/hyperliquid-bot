@@ -254,3 +254,187 @@
 .animate-dot-flash {
   animation: dot-flash 1.4s ease-out infinite;
 }
+
+/* ---------- v2 "alive" animations ---------- */
+
+@keyframes ticker-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+.animate-ticker {
+  animation: ticker-scroll 42s linear infinite;
+}
+.ticker-hover:hover .animate-ticker {
+  animation-play-state: paused;
+}
+
+@keyframes bot-blink {
+  0%, 91%, 100% {
+    transform: scaleY(1);
+  }
+  94%, 97% {
+    transform: scaleY(0.08);
+  }
+}
+.bot-eyes {
+  transform-origin: 60px 63px;
+  transform-box: view-box;
+  animation: bot-blink 4.4s ease-in-out infinite;
+}
+
+@keyframes bot-look {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  18% {
+    transform: translateX(3.4px);
+  }
+  22% {
+    transform: translateX(3.4px);
+  }
+  46% {
+    transform: translateX(-3.4px);
+  }
+  50% {
+    transform: translateX(-3.4px);
+  }
+  74% {
+    transform: translateX(0);
+  }
+}
+.bot-look .bot-eyes {
+  animation:
+    bot-blink 4.4s ease-in-out infinite,
+    bot-look 5.6s ease-in-out infinite;
+}
+
+@keyframes bot-hop {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  30% {
+    transform: translateY(-6px) rotate(-2.5deg);
+  }
+  55% {
+    transform: translateY(-1px) rotate(1.6deg);
+  }
+  75% {
+    transform: translateY(-3px) rotate(-1deg);
+  }
+}
+.animate-hop {
+  animation: bot-hop 1.5s ease-in-out infinite;
+}
+
+@keyframes bot-sleep {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(0.5px) scale(0.985);
+    opacity: 0.86;
+  }
+}
+.animate-sleep {
+  animation: bot-sleep 2.8s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -180px 0;
+  }
+  100% {
+    background-position: 180px 0;
+  }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, #ececef 25%, #f7f7f9 50%, #ececef 75%);
+  background-size: 360px 100%;
+  animation: shimmer 1.7s linear infinite;
+}
+
+@keyframes price-flash-up {
+  0% {
+    color: #16a34a;
+  }
+  100% {
+    color: inherit;
+  }
+}
+@keyframes price-flash-down {
+  0% {
+    color: #dc2626;
+  }
+  100% {
+    color: inherit;
+  }
+}
+.flash-up {
+  animation: price-flash-up 0.8s ease-out;
+}
+.flash-down {
+  animation: price-flash-down 0.8s ease-out;
+}
+
+@keyframes antenna-ding {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(14deg);
+  }
+  40% {
+    transform: rotate(-10deg);
+  }
+  60% {
+    transform: rotate(6deg);
+  }
+  80% {
+    transform: rotate(-4deg);
+  }
+}
+.bot-antenna {
+  transform-origin: 60px 18px;
+  transform-box: view-box;
+}
+.bot-alive .bot-antenna {
+  animation: antenna-ding 3.8s ease-in-out infinite;
+}
+
+@keyframes pop-check {
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.animate-pop-check {
+  animation: pop-check 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes live-ring {
+  0% {
+    stroke-dashoffset: 44;
+  }
+  50% {
+    stroke-dashoffset: 12;
+  }
+  100% {
+    stroke-dashoffset: 44;
+  }
+}
+.animate-live-ring {
+  animation: live-ring 2.4s ease-in-out infinite;
+}

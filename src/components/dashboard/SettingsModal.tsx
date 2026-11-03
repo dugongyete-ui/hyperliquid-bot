@@ -174,6 +174,9 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
             <p className="text-[12.5px] font-extrabold text-[#C2410C]">
               ⚠ {mode === 'mainnet' ? 'DANA SUNGGUHAN — bot akan membuat order nyata di Hyperliquid mainnet.' : 'Mode testnet: butuh dana virtual dari faucet testnet Hyperliquid.'}
             </p>
+            <p className="text-[11.5px] font-bold text-[#9A3412]">
+              Minimum order exchange Hyperliquid: $10 per trade (dipakai juga di SIM agar realistis).
+            </p>
             <div className="space-y-1.5">
               <Label htmlFor="pk" className="text-[12px] font-extrabold">
                 Private key (agent wallet)

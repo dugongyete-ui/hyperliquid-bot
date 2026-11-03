@@ -49,3 +49,10 @@ model EquityPoint {
   equity    Float
   createdAt DateTime @default(now())
 }
+
+// Resolved original coin icon URLs (CoinGecko), cached forever
+model CoinIcon {
+  symbol    String   @id
+  url       String?
+  updatedAt DateTime @updatedAt
+}

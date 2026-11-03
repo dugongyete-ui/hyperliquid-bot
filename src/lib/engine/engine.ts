@@ -27,6 +27,7 @@ import type {
 
 const TICK_MS = 2500
 const MAX_OPEN = 4
+const MIN_TRADE_USD = 10 // Hyperliquid exchange minimum notional — SIM mirrors it
 const SCRATCH_PCT = 0.08 // |pnl%| below this = breakeven "scratch" trade
 const STREAK_MILESTONES = [5, 10, 20, 50]
 
@@ -611,7 +612,7 @@ export class Engine {
 
   private async openPosition(rt: BotRuntime, sig: Signal): Promise<boolean> {
     const equity = this.currentEquity()
-    let sizeUsd = Math.min(25000, Math.max(40, equity * rt.def.sizing))
+    let sizeUsd = Math.min(25000, Math.max(MIN_TRADE_USD, equity * rt.def.sizing))
     const mid = this.market.mid(sig.coin)
     if (mid == null || mid <= 0) return false
 
@@ -944,6 +945,8 @@ export class Engine {
       notifications: this.notifications.filter((n) => this.unseenIds.has(n.id)).slice(0, 5),
       openCount: openRows.length,
       liveAccountValue: this.liveAccountValue,
+      pairsCount: this.market.pairsCount,
+      ticker: this.market.ticker,
     }
   }
 }

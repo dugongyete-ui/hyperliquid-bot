@@ -2,12 +2,14 @@
 
 import type { TradeRow } from '@/lib/shared-types'
 import { fmtHeld, fmtPct, fmtPx, fmtSignedUsd, fmtSizeUsd } from '@/lib/format'
-import { CoinIcon, type FaceVariant } from './BotAvatar'
+import type { FaceVariant } from './BotAvatar'
+import { CoinBadge } from './CoinIcon'
 
 interface TradesCardProps {
   trades: TradeRow[]
   wins: number
   losses: number
+  onPickCoin: (coin: string) => void
 }
 
 const FACE_BY_KEY: Record<string, FaceVariant> = {
@@ -18,7 +20,7 @@ const FACE_BY_KEY: Record<string, FaceVariant> = {
   scalper: 'smirk',
 }
 
-export function TradesCard({ trades, wins, losses }: TradesCardProps) {
+export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps) {
   return (
     <section className="rounded-[28px] bg-white p-5 shadow-[0_2px_16px_rgba(0,0,0,0.05)]">
       <div className="mb-1 flex items-baseline justify-between">
@@ -42,8 +44,14 @@ export function TradesCard({ trades, wins, losses }: TradesCardProps) {
         <ul className="nice-scroll max-h-[340px] divide-y divide-[#F2F2F4] overflow-y-auto pr-1">
           {trades.map((t) => {
             return (
-              <li key={t.id} className="flex items-center gap-3 py-2.5">
-                <CoinIcon
+              <li
+                key={t.id}
+                onClick={() => onPickCoin(t.coin)}
+                className="flex cursor-pointer items-center gap-3 py-2.5 transition hover:bg-black/[0.025] active:scale-[0.99]"
+                role="button"
+                aria-label={`Open ${t.coin} chart`}
+              >
+                <CoinBadge
                   coin={t.coin}
                   size={40}
                   badgeColor={t.botColor}
@@ -73,7 +81,9 @@ export function TradesCard({ trades, wins, losses }: TradesCardProps) {
                       >
                         {fmtPct(t.pnlPct)}
                       </p>
-                      <p className="text-[12.5px] font-semibold text-[#8E8E93]">open</p>
+                      <p className="text-[12.5px] font-semibold text-[#8E8E93]">
+                        {fmtPx(t.entryPx)}
+                      </p>
                     </>
                   ) : (
                     <>
@@ -105,8 +115,4 @@ export function TradesCard({ trades, wins, losses }: TradesCardProps) {
       )}
     </section>
   )
-}
-
-export function tradePxLabel(t: TradeRow): string {
-  return `entry ${fmtPx(t.entryPx)}`
 }
