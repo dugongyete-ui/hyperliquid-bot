@@ -23,6 +23,14 @@ export interface BookTop {
   ask: number
   bidSz: number
   askSz: number
+  /** cumulative USD depth of bids within 5/10/25 bps of mid */
+  bidDepth5: number
+  bidDepth10: number
+  bidDepth25: number
+  /** cumulative USD depth of asks within 5/10/25 bps of mid */
+  askDepth5: number
+  askDepth10: number
+  askDepth25: number
 }
 
 /** bootstrap list — only used until the first meta download lands */
@@ -72,6 +80,10 @@ export class MarketData {
   private vol24h = new Map<string, number>()
   /** exchange max leverage per coin */
   private maxLev = new Map<string, number>()
+  /** hourly funding rate per coin (fraction, e.g. 0.0001 = 0.01%/hour) */
+  private funding = new Map<string, number>()
+  /** open interest history (coin units), one sample per meta refresh (~45s) */
+  private oiHistory = new Map<string, number[]>()
   /** coins the engine wants fresh data for right now (open positions) */
   private priority = new Set<string>()
 
@@ -191,11 +203,45 @@ export class MarketData {
     const bids = raw.levels?.[0] ?? []
     const asks = raw.levels?.[1] ?? []
     if (bids.length === 0 || asks.length === 0) return
+    const bidPx = parseFloat(bids[0].px)
+    const askPx = parseFloat(asks[0].px)
+    const bidSz = parseFloat(bids[0].sz)
+    const askSz = parseFloat(asks[0].sz)
+    if (!(bidPx > 0) || !(askPx > 0)) return
+    const mid = (bidPx + askPx) / 2
+    // cumulative USD depth within 5/10/25 bps of mid — far more robust than
+    // top-of-book sizes, which a single spoofed level-1 order can fake
+    const bidBand = [5, 10, 25].map((b) => mid * (1 - b / 10_000))
+    const askBand = [5, 10, 25].map((b) => mid * (1 + b / 10_000))
+    let bidDepth5 = 0, bidDepth10 = 0, bidDepth25 = 0
+    for (const lvl of bids) {
+      const px = parseFloat(lvl.px)
+      if (!(px >= bidBand[2])) break // bids sorted desc — below the widest band, stop
+      const ntl = px * parseFloat(lvl.sz)
+      if (px >= bidBand[0]) bidDepth5 += ntl
+      if (px >= bidBand[1]) bidDepth10 += ntl
+      bidDepth25 += ntl
+    }
+    let askDepth5 = 0, askDepth10 = 0, askDepth25 = 0
+    for (const lvl of asks) {
+      const px = parseFloat(lvl.px)
+      if (!(px <= askBand[2])) break // asks sorted asc — above the widest band, stop
+      const ntl = px * parseFloat(lvl.sz)
+      if (px <= askBand[0]) askDepth5 += ntl
+      if (px <= askBand[1]) askDepth10 += ntl
+      askDepth25 += ntl
+    }
     this.book.set(coin, {
-      bid: parseFloat(bids[0].px),
-      ask: parseFloat(asks[0].px),
-      bidSz: parseFloat(bids[0].sz),
-      askSz: parseFloat(asks[0].sz),
+      bid: bidPx,
+      ask: askPx,
+      bidSz,
+      askSz,
+      bidDepth5,
+      bidDepth10,
+      bidDepth25,
+      askDepth5,
+      askDepth10,
+      askDepth25,
     })
   }
 
@@ -227,6 +273,17 @@ export class MarketData {
       nextUniverse.push(name)
       this.vol24h.set(name, isFinite(vlm) ? vlm : 0)
       this.maxLev.set(name, u?.maxLeverage ?? 20)
+      // funding + open interest ride along for FREE — same response we already
+      // download every 45s, we just never parsed these fields before
+      const funding = parseFloat(ctx.funding)
+      if (isFinite(funding)) this.funding.set(name, funding)
+      const oi = parseFloat(ctx.openInterest)
+      if (isFinite(oi) && oi >= 0) {
+        const h = this.oiHistory.get(name) ?? []
+        h.push(oi)
+        if (h.length > 6) h.splice(0, h.length - 6)
+        this.oiHistory.set(name, h)
+      }
       if (isFinite(prev) && prev > 0 && isFinite(vlm)) {
         rows.push({ coin: name, px, changePct: (px / prev - 1) * 100, vlm })
       }
@@ -300,6 +357,54 @@ export class MarketData {
     const b = this.book.get(coin)
     if (!b || b.askSz <= 0) return null
     return b.bidSz / b.askSz
+  }
+
+  /**
+   * bid/ask USD depth ratio within `bps` of mid — >1 means bids dominate.
+   * Robust against spoofing (sums many levels), unlike top-of-book sizes.
+   */
+  depthImbalance(coin: string, bps: 5 | 10 | 25 = 25): number | null {
+    const b = this.book.get(coin)
+    if (!b) return null
+    const bid = bps === 5 ? b.bidDepth5 : bps === 10 ? b.bidDepth10 : b.bidDepth25
+    const ask = bps === 5 ? b.askDepth5 : bps === 10 ? b.askDepth10 : b.askDepth25
+    if (!isFinite(bid) || !isFinite(ask)) {
+      // stale entry from before this upgrade — degrade to top-of-book sizes
+      if (b.askSz > 0) return Math.min(10, Math.max(0.1, b.bidSz / b.askSz))
+      return null
+    }
+    if (bid <= 0 && ask <= 0) return null
+    if (ask <= 0) return 10 // one-sided book, capped
+    return Math.min(10, Math.max(0.1, bid / ask))
+  }
+
+  /** hourly funding rate as percent (e.g. −0.012 = −0.012%/hour) */
+  fundingPctHourly(coin: string): number | null {
+    const f = this.funding.get(coin)
+    return f == null ? null : f * 100
+  }
+
+  /** open interest in USD (coin units × mark) */
+  oiUsd(coin: string): number | null {
+    const h = this.oiHistory.get(coin)
+    const oi = h?.[h.length - 1]
+    const px = this.mids.get(coin)
+    if (oi == null || px == null) return null
+    return oi * px
+  }
+
+  /**
+   * OI % change over the last ~n meta samples (n×~45s). Rising OI = fresh
+   * money entering and fueling the move; falling OI = the move is just
+   * positions closing — much weaker confirmation.
+   */
+  oiChangePct(coin: string, n = 4): number | null {
+    const h = this.oiHistory.get(coin)
+    if (!h || h.length < 3) return null
+    const a = h[Math.max(0, h.length - 1 - n)]
+    const b = h[h.length - 1]
+    if (!a) return null
+    return ((b - a) / a) * 100
   }
 
   closes(coin: string): number[] | null {

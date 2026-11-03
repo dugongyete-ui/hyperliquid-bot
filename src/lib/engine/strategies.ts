@@ -168,7 +168,9 @@ function whaleTailSignal(market: MarketData, relax: number): Signal | null {
 function scalperSignal(market: MarketData, relax: number): Signal | null {
   const scored: Array<{ coin: string; imb: number; spread: number; micro: number }> = []
   for (const coin of market.liquidCoins(FLOORS.scalper)) {
-    const imb = market.imbalance(coin)
+    // depth-based imbalance (USD within 10 bps of mid) — robust vs spoofed
+    // level-1 sizes; falls back to the old top-of-book ratio if book is stale
+    const imb = market.depthImbalance(coin, 10) ?? market.imbalance(coin)
     const spread = market.spreadPct(coin)
     const micro = market.retPct(coin, 2)
     if (imb == null || spread == null || micro == null) continue
@@ -181,7 +183,7 @@ function scalperSignal(market: MarketData, relax: number): Signal | null {
       return {
         coin: s.coin,
         side: 'long',
-        reason: `spread ${s.spread.toFixed(3)}% · bid menumpuk`,
+        reason: `spread ${s.spread.toFixed(3)}% · depth bid menumpuk ${s.imb.toFixed(1)}×`,
       }
     }
   }
@@ -193,7 +195,7 @@ function scalperSignal(market: MarketData, relax: number): Signal | null {
       return {
         coin: s.coin,
         side: 'short',
-        reason: `spread ${s.spread.toFixed(3)}% · ask menumpuk`,
+        reason: `spread ${s.spread.toFixed(3)}% · depth ask menumpuk ${(1 / s.imb).toFixed(1)}×`,
       }
     }
   }

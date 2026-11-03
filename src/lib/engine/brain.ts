@@ -15,6 +15,13 @@
 //                      REQUIRE the extreme on their side
 //   6. overextension — a coin that already ran ±5%/30m is someone else's exit
 //   7. spread        — wide book = instant slippage loss on entry+exit
+//   8. book depth    — cumulative USD depth 5/10/25 bps around mid: a wall on
+//                      the wrong side of our entry is penalized, stacked
+//                      support on our side pays
+//   9. funding       — never crowd the popular side (extreme funding = squeeze
+//                      fuel); getting PAID to hold our side is a tailwind
+//  10. open interest — OI rising = fresh money fuels the move; OI falling =
+//                      the move is just positions closing (weak)
 //
 // No AI, no vibes — every gate is a number computed from live candles/books,
 // so the desk rules ("we only trade with confirmation") are ENFORCED, not
@@ -178,6 +185,48 @@ export function verdict(
     if (spread > 0.25) veto.push(`spread lebar ${spread.toFixed(2)}%`)
     else if (spread > 0.12 && (kind === 'micro' || kind === 'breakout')) {
       soft.push({ label: 'spread lumayan lebar', pts: 6 })
+    }
+  }
+
+  // ---------- 8. book depth (USD within 5/10/25 bps of mid) ----------
+  const dimb = market.depthImbalance(coin, 25)
+  if (dimb != null) {
+    if (up ? dimb >= 1.4 : dimb <= 1 / 1.4) {
+      score += 10
+      pass.push(up ? `depth bid ${dimb.toFixed(1)}×` : `depth ask ${(1 / dimb).toFixed(1)}×`)
+    } else if (up ? dimb <= 0.65 : dimb >= 1 / 0.65) {
+      soft.push({
+        label: up ? 'ask wall menumpuk di atas' : 'bid wall menumpuk di bawah',
+        pts: 10,
+      })
+    }
+  }
+
+  // ---------- 9. funding — don't crowd the popular side ----------
+  const fundPct = market.fundingPctHourly(coin)
+  if (fundPct != null) {
+    if (up ? fundPct >= 0.03 : fundPct <= -0.03) {
+      soft.push({
+        label: `funding ${fundPct.toFixed(3)}%/jam · sisi ${up ? 'long' : 'short'} ramai`,
+        pts: 10,
+      })
+    } else if (up ? fundPct <= -0.005 : fundPct >= 0.005) {
+      score += 6
+      pass.push(up ? 'funding negatif · long dibayar' : 'funding positif · short dibayar')
+    }
+  }
+
+  // ---------- 10. open interest — fresh money or just closings? ----------
+  // direction-agnostic: OI up means NEW positions are being opened in the
+  // direction of the move (new longs on a rip, new shorts on a dump) — both
+  // confirm the move. OI down means the move is people exiting.
+  const oiChg = market.oiChangePct(coin)
+  if (oiChg != null) {
+    if (oiChg >= 1.5) {
+      score += 8
+      pass.push(`OI +${oiChg.toFixed(1)}% · dana segar`)
+    } else if (oiChg <= -2.5) {
+      soft.push({ label: 'OI turun · gerakan dari tutup posisi', pts: 8 })
     }
   }
 
