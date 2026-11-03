@@ -986,7 +986,7 @@ export class Engine {
     if (this.settings.mode !== 'sim') {
       const network = this.liveNetwork()
       if (!network || !this.settings.privateKey) return false
-      qty = await roundQty(sig.coin, qty)
+      qty = await roundQty(sig.coin, qty, network)
       if (qty <= 0 || qty * mid < 10) {
         rt.state.thought = `order $${sig.coin} terlalu kecil untuk exchange`
         rt.state.thoughtAt = Date.now()

@@ -23,15 +23,20 @@ export interface BookTop {
   ask: number
   bidSz: number
   askSz: number
-  /** cumulative USD depth of bids within 5/10/25 bps of mid */
-  bidDepth5: number
-  bidDepth10: number
-  bidDepth25: number
-  /** cumulative USD depth of asks within 5/10/25 bps of mid */
-  askDepth5: number
-  askDepth10: number
-  askDepth25: number
+  /** cumulative USD depth per side at each DEPTH_GRID width */
+  bidGrid: number[]
+  askGrid: number[]
+  /** how far the returned page actually reaches from mid (bps, per side).
+   * The API returns up to 20 levels — on liquid books that page stops a few
+   * bps from mid, so sums past the reach are a floor, not the real band
+   * (HyperGrok: "20 levels is a page, not the book"). */
+  reachBidBps: number
+  reachAskBps: number
 }
+
+/** fixed bps widths for cumulative depth sums — both sides summed at the
+ * SAME width so the bid/ask ratio always compares like with like */
+export const DEPTH_GRID = [1, 2, 3, 5, 8, 10, 15, 20, 25] as const
 
 /** bootstrap list — only used until the first meta download lands */
 const BOOTSTRAP = [
@@ -209,39 +214,42 @@ export class MarketData {
     const askSz = parseFloat(asks[0].sz)
     if (!(bidPx > 0) || !(askPx > 0)) return
     const mid = (bidPx + askPx) / 2
-    // cumulative USD depth within 5/10/25 bps of mid — far more robust than
-    // top-of-book sizes, which a single spoofed level-1 order can fake
-    const bidBand = [5, 10, 25].map((b) => mid * (1 - b / 10_000))
-    const askBand = [5, 10, 25].map((b) => mid * (1 + b / 10_000))
-    let bidDepth5 = 0, bidDepth10 = 0, bidDepth25 = 0
+    // HyperGrok lesson: "20 levels is a page, not the book." On liquid perps
+    // the default page stops a few bps from mid, so a "25 bps" sum from it is
+    // whatever the page happened to contain. Sum BOTH sides only up to the
+    // width both pages actually reach, so a bid/ask ratio never compares a
+    // wide page against a narrow one.
+    const bidEdges = DEPTH_GRID.map((w) => mid * (1 - w / 10_000))
+    const askEdges = DEPTH_GRID.map((w) => mid * (1 + w / 10_000))
+    const bidGrid = new Array<number>(DEPTH_GRID.length).fill(0)
+    const askGrid = new Array<number>(DEPTH_GRID.length).fill(0)
+    let reachBidBps = 0
     for (const lvl of bids) {
       const px = parseFloat(lvl.px)
-      if (!(px >= bidBand[2])) break // bids sorted desc — below the widest band, stop
+      const dist = ((mid - px) / mid) * 10_000
+      if (!(dist <= 25)) break // bids sorted desc — beyond the widest band, stop
+      if (dist > reachBidBps) reachBidBps = dist
       const ntl = px * parseFloat(lvl.sz)
-      if (px >= bidBand[0]) bidDepth5 += ntl
-      if (px >= bidBand[1]) bidDepth10 += ntl
-      bidDepth25 += ntl
+      for (let i = 0; i < bidEdges.length; i++) if (px >= bidEdges[i]) bidGrid[i] += ntl
     }
-    let askDepth5 = 0, askDepth10 = 0, askDepth25 = 0
+    let reachAskBps = 0
     for (const lvl of asks) {
       const px = parseFloat(lvl.px)
-      if (!(px <= askBand[2])) break // asks sorted asc — above the widest band, stop
+      const dist = ((px - mid) / mid) * 10_000
+      if (!(dist <= 25)) break // asks sorted asc — beyond the widest band, stop
+      if (dist > reachAskBps) reachAskBps = dist
       const ntl = px * parseFloat(lvl.sz)
-      if (px <= askBand[0]) askDepth5 += ntl
-      if (px <= askBand[1]) askDepth10 += ntl
-      askDepth25 += ntl
+      for (let i = 0; i < askEdges.length; i++) if (px <= askEdges[i]) askGrid[i] += ntl
     }
     this.book.set(coin, {
       bid: bidPx,
       ask: askPx,
       bidSz,
       askSz,
-      bidDepth5,
-      bidDepth10,
-      bidDepth25,
-      askDepth5,
-      askDepth10,
-      askDepth25,
+      bidGrid,
+      askGrid,
+      reachBidBps,
+      reachAskBps,
     })
   }
 
@@ -360,22 +368,34 @@ export class MarketData {
   }
 
   /**
-   * bid/ask USD depth ratio within `bps` of mid — >1 means bids dominate.
-   * Robust against spoofing (sums many levels), unlike top-of-book sizes.
+   * bid/ask USD depth ratio — >1 means bids dominate. Summed at the widest
+   * width BOTH book pages actually reach (never a wide page vs a narrow one).
+   * Sums many levels, so a single spoofed level-1 order cannot fake it.
    */
   depthImbalance(coin: string, bps: 5 | 10 | 25 = 25): number | null {
     const b = this.book.get(coin)
     if (!b) return null
-    const bid = bps === 5 ? b.bidDepth5 : bps === 10 ? b.bidDepth10 : b.bidDepth25
-    const ask = bps === 5 ? b.askDepth5 : bps === 10 ? b.askDepth10 : b.askDepth25
-    if (!isFinite(bid) || !isFinite(ask)) {
-      // stale entry from before this upgrade — degrade to top-of-book sizes
+    const w = Math.min(bps, b.reachBidBps, b.reachAskBps)
+    let gi = -1
+    for (let i = 0; i < DEPTH_GRID.length; i++) if (DEPTH_GRID[i] <= w + 1e-9) gi = i
+    if (gi < 0 || !isFinite(b.bidGrid?.[gi] ?? NaN)) {
+      // page barely reaches 1 bps or stale entry — degrade to top-of-book sizes
       if (b.askSz > 0) return Math.min(10, Math.max(0.1, b.bidSz / b.askSz))
       return null
     }
+    const bid = b.bidGrid[gi]
+    const ask = b.askGrid[gi]
     if (bid <= 0 && ask <= 0) return null
     if (ask <= 0) return 10 // one-sided book, capped
+    if (bid <= 0) return 0.1
     return Math.min(10, Math.max(0.1, bid / ask))
+  }
+
+  /** effective comparable depth width (bps) — any wider band is a floor */
+  depthReachBps(coin: string): number | null {
+    const b = this.book.get(coin)
+    if (!b) return null
+    return Math.min(b.reachBidBps, b.reachAskBps)
   }
 
   /** hourly funding rate as percent (e.g. −0.012 = −0.012%/hour) */
