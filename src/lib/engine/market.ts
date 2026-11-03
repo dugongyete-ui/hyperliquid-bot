@@ -389,6 +389,60 @@ export class MarketData {
     return isFinite(atr) && atr > 0 ? atr : null
   }
 
+  /** simple EMA over a series */
+  private emaSeries(vals: number[], len: number): number[] {
+    const k = 2 / (len + 1)
+    const out: number[] = []
+    let prev = vals[0]
+    for (let i = 0; i < vals.length; i++) {
+      prev = i === 0 ? vals[0] : vals[i] * k + prev * (1 - k)
+      out.push(prev)
+    }
+    return out
+  }
+
+  /**
+   * Higher-timeframe trend: 1m candles bucketed into `tfMin`-minute closes,
+   * EMA(len) on top. This is the entry brain's bias gate — a breakout long is
+   * only allowed WITH the 5-minute trend, never against it.
+   *   above  → price above the 5m EMA (uptrend intact)
+   *   rising → the EMA itself is sloping up (momentum, not just a bounce)
+   */
+  htfTrend(
+    coin: string,
+    tfMin = 5,
+    len = 12
+  ): { ema: number; above: boolean; rising: boolean } | null {
+    const cs = this.candles.get(coin)
+    if (!cs || cs.length < (len + 2) * tfMin) return null
+    const buckets = new Map<number, { sum: number; n: number }>()
+    for (const c of cs) {
+      const b = Math.floor(c.t / (tfMin * 60_000))
+      const cur = buckets.get(b) ?? { sum: 0, n: 0 }
+      cur.sum += c.c
+      cur.n++
+      buckets.set(b, cur)
+    }
+    const keys = [...buckets.keys()].sort((a, b) => a - b)
+    if (keys.length < len + 2) return null
+    const closes = keys.map((k) => buckets.get(k)!.sum / buckets.get(k)!.n)
+    const ema = this.emaSeries(closes, len)
+    const last = ema[ema.length - 1]
+    const prev = ema[ema.length - 2]
+    const px = closes[closes.length - 1]
+    return { ema: last, above: px >= last, rising: last >= prev }
+  }
+
+  /** return over the last n minutes from 1m candles (candle-based, not tick-based) */
+  retPctCandles(coin: string, nMin: number): number | null {
+    const cs = this.candles.get(coin)
+    if (!cs || cs.length < nMin + 2) return null
+    const a = cs[cs.length - 1 - nMin]
+    const b = cs[cs.length - 1]
+    if (!a || a.c <= 0) return null
+    return ((b.c - a.c) / a.c) * 100
+  }
+
   /**
    * Market regime via Kaufman Efficiency Ratio over the last n 1m closes:
    *   ER = |net move| / Σ|every 1m move|   ∈ [0..1]

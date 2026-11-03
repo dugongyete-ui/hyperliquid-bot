@@ -15,6 +15,8 @@ export interface CrewBotState {
   status: 'scanning' | 'cooling' | 'holding' | 'paused'
   thought: string
   thoughtAt: number
+  /** confluence brain score of the agent's last entry (null = no entry yet) */
+  score: number | null
   holding: {
     coin: string
     pnlPct: number
@@ -114,6 +116,8 @@ export interface EngineSnapshot {
   risk: RiskState
   goal: { target: number; done: boolean }
   regimeSamples: RegimeSample[]
+  /** live proof the entry brain is filtering: candidate stats in a 5-min window */
+  smart: { scans: number; vetoes: number; entries: number; windowSec: number }
   equityCurve: EquityPointRow[]
   crew: CrewBotState[]
   trades: TradeRow[]

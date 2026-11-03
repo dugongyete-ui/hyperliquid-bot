@@ -304,6 +304,7 @@ export default function Home() {
               crew={state?.crew ?? []}
               openCount={state?.openCount ?? 0}
               totalWins={state?.crew.reduce((a, b) => a + b.wins, 0) ?? 0}
+              smart={state?.smart}
               onPickCoin={openChart}
             />
           </div>

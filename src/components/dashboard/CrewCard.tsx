@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Brain } from 'lucide-react'
 import type { CrewBotState } from '@/lib/shared-types'
 import { fmtPct, fmtSmartUsd } from '@/lib/format'
 import type { FaceVariant } from './BotAvatar'
@@ -11,6 +12,7 @@ interface CrewCardProps {
   crew: CrewBotState[]
   openCount: number
   totalWins: number
+  smart?: { scans: number; vetoes: number; entries: number; windowSec: number }
   onPickCoin: (coin: string) => void
 }
 
@@ -121,7 +123,8 @@ function AgentCard({
         {bot.name}
       </p>
 
-      {/* live P&L (realized + open position) — pulsing dot marks an open trade */}
+      {/* live P&L (realized + open position) — pulsing dot marks an open trade,
+          plus the confluence-brain score of the agent's last entry */}
       <p
         className={`flex items-center gap-1 text-[12px] font-extrabold tabular-nums ${
           bot.pnl > 0.005 ? 'text-[#22C55E]' : bot.pnl < -0.005 ? 'text-[#EF4444]' : 'text-[#8E8E93]'
@@ -131,6 +134,20 @@ function AgentCard({
           <span className="animate-soft-pulse inline-block h-1.5 w-1.5 rounded-full bg-[#30D158]" />
         )}
         {fmtSmartUsd(bot.pnl)}
+        {bot.score != null && (
+          <span
+            title={`skor konfirmasi entry terakhir: ${bot.score}/100`}
+            className={`ml-0.5 rounded-full px-1.5 py-[1px] text-[9.5px] font-black leading-[13px] ${
+              bot.score >= 70
+                ? 'bg-[#DCFCE7] text-[#15803D]'
+                : bot.score >= 55
+                  ? 'bg-[#FEF3C7] text-[#B45309]'
+                  : 'bg-[#F2F3F5] text-[#8E8E93]'
+            }`}
+          >
+            {bot.score}
+          </span>
+        )}
       </p>
 
       {/* status chip: the held coin (original logo) / scanning / cooling / paused */}
@@ -173,7 +190,7 @@ function AgentCard({
 }
 
 /** The crew card: five cute animated robots in a row, exactly like the reference. */
-export function CrewCard({ crew, openCount, totalWins, onPickCoin }: CrewCardProps) {
+export function CrewCard({ crew, openCount, totalWins, smart, onPickCoin }: CrewCardProps) {
   return (
     <section
       aria-label="Crew"
@@ -195,6 +212,20 @@ export function CrewCard({ crew, openCount, totalWins, onPickCoin }: CrewCardPro
           />
         ))}
       </div>
+      {/* live brain strip — proof the confluence gate is actively filtering */}
+      {smart && (smart.vetoes > 0 || smart.entries > 0) && (
+        <div
+          className="mt-2.5 flex items-center justify-center gap-1.5 border-t border-black/[0.04] pt-2 text-[11px] font-bold text-[#8E8E93]"
+          title="Otak konfirmasi: sinyal kandidat yang direview, ditolak (tren/RSI/volume/overextension), dan lolos dalam 5 menit terakhir"
+        >
+          <Brain size={12} strokeWidth={2.5} className="shrink-0 text-[#B4B4B9]" aria-hidden />
+          <span>
+            otak crew: <span className="text-[#EF4444]">{smart.vetoes} sinyal ditolak</span>
+            {' · '}
+            <span className="text-[#15803D]">{smart.entries} lolos</span>
+          </span>
+        </div>
+      )}
     </section>
   )
 }

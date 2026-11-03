@@ -6,6 +6,7 @@ import { db } from '@/lib/db'
 import { CREW, crewDef, type CrewDef } from './crew'
 import { MarketData } from './market'
 import { evaluateSignal, type Signal } from './strategies'
+import { rejectReason, verdict, kindOf } from './brain'
 import {
   CEILINGS,
   RiskLedger,
@@ -97,6 +98,12 @@ interface BotStats {
   losses: number
 }
 
+/** per-agent form memory — the desk learns which agent is hot or cold */
+interface AgentForm {
+  consecLoss: number
+  consecWin: number
+}
+
 interface BotRuntime {
   def: CrewDef
   state: CrewBotState
@@ -159,6 +166,14 @@ export class Engine {
 
   private bots = new Map<BotKey, BotRuntime>()
   private positions: OpenPosition[] = []
+  /** loss memory: coin → blocked-until. A coin that just stopped us out stays
+   * off-limits for a while — re-entering a loser is how small losses compound */
+  private coinBlock = new Map<string, number>()
+  /** agent form (consecutive wins/losses, current mode) → adaptive score boost */
+  private form = new Map<BotKey, AgentForm>()
+  /** brain activity counters, reset on a rolling 5-min window */
+  private smart = { scans: 0, vetoes: 0, entries: 0, windowStart: Date.now() }
+  private lastVetoThoughtAt = new Map<BotKey, number>()
   private closedCache: TradeRow[] = []
   private botStats: Record<TradeMode, Record<string, BotStats>> = {
     sim: {},
@@ -226,6 +241,7 @@ export class Engine {
           status: 'scanning',
           thought: def.scanningThoughts[0],
           thoughtAt: Date.now(),
+          score: null,
           holding: null,
         },
         cooldownUntil: 0,
@@ -524,6 +540,11 @@ export class Engine {
     this.sampleEquity(now)
     this.rotateThoughts(now)
     this.updateBotStatuses(now)
+
+    // brain counters roll on a 5-minute window
+    if (now - this.smart.windowStart > 300_000) {
+      this.smart = { scans: 0, vetoes: 0, entries: 0, windowStart: now }
+    }
   }
 
   // ---------------- live sync ----------------
@@ -737,6 +758,25 @@ export class Engine {
       rt.state.thoughtAt = Date.now()
     }
 
+    // ---- learning: agent form + coin loss memory (current mode only) ----
+    if (!isScratch && pos.mode === this.settings.mode) {
+      const f = this.form.get(pos.botKey) ?? { consecLoss: 0, consecWin: 0 }
+      if (pnl > 0) {
+        f.consecWin++
+        f.consecLoss = 0
+      } else {
+        f.consecLoss++
+        f.consecWin = 0
+        // loss memory: this coin just cost us — no re-entry on it for 8 minutes
+        this.coinBlock.set(pos.coin, Date.now() + 8 * 60_000)
+        if (this.coinBlock.size > 120) {
+          const now2 = Date.now()
+          for (const [c, until] of this.coinBlock) if (until < now2) this.coinBlock.delete(c)
+        }
+      }
+      this.form.set(pos.botKey, f)
+    }
+
     // streak (current mode only)
     if (pos.mode === this.settings.mode && !isScratch) {
       if (pnl > 0) {
@@ -821,6 +861,27 @@ export class Engine {
       const sig = evaluateSignal(rt.def, this.market, bored)
       if (!sig || heldCoins.has(sig.coin)) continue
 
+      // loss memory — a coin that just stopped us out is off-limits for a while
+      if (now < (this.coinBlock.get(sig.coin) ?? 0)) continue
+
+      // ---- the entry brain: confluence gate on every candidate ----
+      const f = this.form.get(rt.def.key)
+      // losing streak → pickier (needs a higher score); 3+ wins → a little bolder
+      const boost = f ? (f.consecLoss > 0 ? Math.min(15, f.consecLoss * 5) : f.consecWin >= 3 ? -5 : 0) : 0
+      const v = verdict(sig.coin, this.market, kindOf(rt.def.key), { bored, boost })
+      this.smart.scans++
+      if (!v.ok) {
+        this.smart.vetoes++
+        // whisper the rejection (rate-limited) — the crew shows its reasoning live
+        if (now - (this.lastVetoThoughtAt.get(rt.def.key) ?? 0) > 12_000) {
+          this.lastVetoThoughtAt.set(rt.def.key, now)
+          rt.state.thought = `$${sig.coin} dilewati · ${rejectReason(v)}`
+          rt.state.thoughtAt = now
+        }
+        continue
+      }
+      this.smart.entries++
+
       // cluster gate — the book is risked as a whole, not per-trade
       const cl = clusterOf(sig.coin)
       if ((clusterCount.get(cl) ?? 0) >= CEILINGS.maxPerCluster) {
@@ -835,7 +896,7 @@ export class Engine {
         continue
       }
 
-      const ok = await this.openPosition(rt, sig)
+      const ok = await this.openPosition(rt, sig, v)
       if (ok) {
         heldCoins.add(sig.coin)
         clusterCount.set(cl, (clusterCount.get(cl) ?? 0) + 1)
@@ -844,7 +905,7 @@ export class Engine {
     }
   }
 
-  private async openPosition(rt: BotRuntime, sig: Signal): Promise<boolean> {
+  private async openPosition(rt: BotRuntime, sig: Signal, v: ReturnType<typeof verdict>): Promise<boolean> {
     const equity = this.currentEquity()
     const mid = this.market.mid(sig.coin)
     if (mid == null || mid <= 0) return false
@@ -968,7 +1029,8 @@ export class Engine {
     const exitTag = plan.auto
       ? `TP ${plan.tpPx.toFixed(2)}% · ${REGIME_ID[plan.regime]}`
       : `TP ${plan.tpPx.toFixed(2)}%/SL ${plan.slPx.toFixed(2)}%`
-    rt.state.thought = `beli $${sig.coin} · ${leverage}× · ${sig.reason} · ${exitTag}`
+    rt.state.thought = `beli $${sig.coin} · ${leverage}× · ${sig.reason} · skor ${v.score} · ${exitTag}`
+    rt.state.score = v.score
     rt.state.thoughtAt = Date.now()
     rt.lastActiveAt = Date.now()
     return true
@@ -1180,6 +1242,11 @@ export class Engine {
         this.equityPoints = []
         this.streak = 0
         this.goalNotified = false
+        this.form.clear()
+        this.coinBlock.clear()
+        this.lastVetoThoughtAt.clear()
+        this.smart = { scans: 0, vetoes: 0, entries: 0, windowStart: Date.now() }
+        for (const rt of this.bots.values()) rt.state.score = null
         this.rebuildLedger()
         this.risk.reset() // a fresh SIM start also clears the daily latch
         this.refreshCrewFromStats()
@@ -1305,6 +1372,14 @@ export class Engine {
         const plan = this.exitPlan(crewDef('momentum'), t.coin)
         return { coin: t.coin, regime: plan.regime, tpPct: plan.tpPx, slPct: plan.slPx }
       }),
+      // live proof the entry brain is working: how many candidate signals it
+      // reviewed in the last window and how many it refused to risk money on
+      smart: {
+        scans: this.smart.scans,
+        vetoes: this.smart.vetoes,
+        entries: this.smart.entries,
+        windowSec: 300,
+      },
       equityCurve,
       crew: [...this.bots.values()].map((rt) => {
         // a bot's live P&L = realized + its open position's unrealized P&L

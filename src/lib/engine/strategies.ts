@@ -58,12 +58,13 @@ function momentumSignal(market: MarketData, relax: number): Signal | null {
     scored.push({ coin, ret, ratio })
   }
   scored.sort((a, b) => b.ret - a.ret)
-  const best = scored[0]
+  // ride the strongest FRESH mover — skip coins that already mooned (+3.2%/30m),
+  // chasing those is buying someone else's exit; the brain would veto them anyway
+  const best = scored.find(
+    (s) => s.ret > 0.45 * relax && s.ratio > 1.4 && (market.retPctCandles(s.coin, 30) ?? 0) <= 3.2
+  )
   if (!best) return null
-  if (best.ret > 0.45 * relax && best.ratio > 1.4) {
-    return { coin: best.coin, reason: `pembeli ${best.ratio.toFixed(1)}× penjual` }
-  }
-  return null
+  return { coin: best.coin, reason: `pembeli ${best.ratio.toFixed(1)}× penjual` }
 }
 
 function sniperSignal(market: MarketData, relax: number): Signal | null {
