@@ -267,4 +267,26 @@ export class MarketData {
     if (!cs || cs.length < n) return null
     return Math.min(...cs.slice(-n).map((c) => c.l))
   }
+
+  /**
+   * ATR as a percentage of price over 1m candles — the "how far does this
+   * coin actually move" number. Exit targets derive from it so a take-profit
+   * on BTC (calm) is not the same distance as one on FARTCOIN (wild).
+   */
+  atrPct(coin: string, period = 14): number | null {
+    const cs = this.candles.get(coin)
+    if (!cs || cs.length < period + 1) return null
+    const win = cs.slice(-(period + 1), -1)
+    let sum = 0
+    for (let i = 1; i < win.length; i++) {
+      const tr = Math.max(
+        win[i].h - win[i].l,
+        Math.abs(win[i].h - win[i - 1].c),
+        Math.abs(win[i].l - win[i - 1].c)
+      )
+      sum += tr / win[i].c
+    }
+    const atr = (sum / (win.length - 1)) * 100
+    return isFinite(atr) && atr > 0 ? atr : null
+  }
 }

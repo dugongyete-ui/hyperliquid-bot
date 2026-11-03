@@ -60,3 +60,9 @@ db/*.db-wal
 db/*.db-shm
 upload/
 download/
+
+# runtime logs
+daemon.log
+devrun.log
+devexit.log
+tool-results/

@@ -31,12 +31,34 @@ const MIN_TRADE_USD = 10 // Hyperliquid exchange minimum notional — SIM mirror
 const SCRATCH_PCT = 0.08 // |pnl%| below this = breakeven "scratch" trade
 const STREAK_MILESTONES = [5, 10, 20, 50]
 
+export type RiskProfile = 'chill' | 'balanced' | 'turbo'
+
+/**
+ * Risk profile scales every bot's exit plan. `timeStop` is the max hold for
+ * positions that never went anywhere — winners are always allowed to run
+ * (they ride the trailing stop instead of getting timer-killed).
+ */
+const PROFILES: Record<RiskProfile, { tpMul: number; slMul: number; timeStop: number; trailFrac: number }> = {
+  chill: { tpMul: 1.5, slMul: 1.3, timeStop: 600, trailFrac: 0.45 },
+  balanced: { tpMul: 1.0, slMul: 1.0, timeStop: 390, trailFrac: 0.4 },
+  turbo: { tpMul: 0.7, slMul: 0.85, timeStop: 240, trailFrac: 0.5 },
+}
+
+/** Per-position exit plan in price-move % — derived from live volatility at
+ * entry so a TP on calm BTC isn't the same distance as on FARTCOIN. */
+interface ExitPlan {
+  tpPx: number
+  slPx: number
+  trailPx: number
+  timeStopSec: number
+}
+
 interface OpenPosition {
   tradeId: string
   botKey: BotKey
   coin: string
   qty: number
-  sizeUsd: number
+  sizeUsd: number // notional (margin × leverage) — matches what the exchange sees
   entryPx: number
   peakPct: number
   lastPnlPct: number
@@ -45,6 +67,7 @@ interface OpenPosition {
   mode: TradeMode
   reason: string
   adopted: boolean
+  plan: ExitPlan
 }
 
 interface BotStats {
@@ -66,6 +89,9 @@ export interface EngineSettings {
   botName: string
   startingEquity: number
   goalMultiple: number
+  leverage: number
+  positionPct: number
+  riskProfile: RiskProfile
   privateKey: string | null
   walletAddress: string | null
   liveStartEquity: number | null
@@ -83,6 +109,9 @@ export class Engine {
     botName: 'Grok Bot',
     startingEquity: 1000,
     goalMultiple: 2,
+    leverage: 5,
+    positionPct: 0.3,
+    riskProfile: 'balanced',
     privateKey: null,
     walletAddress: null,
     liveStartEquity: null,
@@ -121,6 +150,9 @@ export class Engine {
       botName: s.botName,
       startingEquity: s.startingEquity,
       goalMultiple: s.goalMultiple,
+      leverage: s.leverage ?? 5,
+      positionPct: s.positionPct ?? 0.3,
+      riskProfile: (s.riskProfile as RiskProfile) ?? 'balanced',
       privateKey: s.privateKey,
       walletAddress: s.walletAddress,
       liveStartEquity: s.liveStartEquity,
@@ -184,6 +216,7 @@ export class Engine {
       mode: t.mode as TradeMode,
       reason: t.reason,
       adopted: false,
+      plan: this.exitPlan(crewDef(t.botKey as BotKey), t.coin),
     }))
 
     // equity points for current mode
@@ -285,6 +318,28 @@ export class Engine {
     if (this.settings.mode === 'testnet') return 'testnet'
     if (this.settings.mode === 'mainnet') return 'mainnet'
     return null
+  }
+
+  /**
+   * Volatility-aware exit plan (all numbers are price-move %):
+   *  - tp: how far the coin usually travels in the hold window (×1.7), capped
+   *    by the bot's own personality ceiling — so TPs are actually reachable
+   *  - sl: a bit over one “normal” adverse candle
+   *  - trail: generous fraction of tp so winners get room to run
+   *  - timeStop: profile-based ceiling — but only for positions that never
+   *    took off (see managePositions: winners never get timer-killed)
+   */
+  private exitPlan(def: CrewDef, coin: string): ExitPlan {
+    const prof = PROFILES[this.settings.riskProfile] ?? PROFILES.balanced
+    const vol = this.market.atrPct(coin, 14) ?? 0.18 // % per 1m candle
+    const horizon = Math.sqrt(prof.timeStop / 60) // diffusion-style time scaling
+    const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+    return {
+      tpPx: clamp(1.7 * horizon * vol, 0.3, def.exit.tp * prof.tpMul),
+      slPx: clamp(1.15 * horizon * vol, 0.18, def.exit.sl * prof.slMul),
+      trailPx: Math.max(0.22, prof.trailFrac * clamp(1.7 * horizon * vol, 0.3, def.exit.tp * prof.tpMul)),
+      timeStopSec: prof.timeStop,
+    }
   }
 
   private unrealizedFor(pos: OpenPosition): { pnl: number; pnlPct: number } {
@@ -411,6 +466,7 @@ export class Engine {
         mode: this.settings.mode,
         reason: 'adopted existing position',
         adopted: true,
+        plan: this.exitPlan(idleBot.def, p.coin),
       })
       idleBot.state.thought = `adopted $${p.coin} from the exchange`
       idleBot.state.thoughtAt = Date.now()
@@ -452,16 +508,27 @@ export class Engine {
       pos.peakPct = Math.max(pos.peakPct, u.pnlPct)
 
       const age = (now - pos.openedAt) / 1000
+      const { tpPx, slPx, trailPx, timeStopSec } = pos.plan
+
+      // a position that has shown ≥ half its TP target is a “runner”:
+      // the timer no longer applies — it rides the trailing stop instead
+      const isRunner = pos.peakPct >= tpPx * 0.5
+
       let exitReason: string | null = null
-      if (pos.lastPnlPct >= def.exit.tp) exitReason = 'take profit'
-      else if (pos.lastPnlPct <= -def.exit.sl) exitReason = 'stop loss'
-      else if (
-        def.exit.trail != null &&
-        pos.peakPct >= def.exit.trail &&
-        pos.lastPnlPct <= pos.peakPct - def.exit.trail
-      )
+      if (pos.lastPnlPct >= tpPx) exitReason = 'take profit'
+      else if (pos.lastPnlPct <= -slPx) exitReason = 'stop loss'
+      else if (isRunner && pos.lastPnlPct <= pos.peakPct - trailPx)
         exitReason = 'trailing stop'
-      else if (age >= def.exit.timeStop) exitReason = 'time stop'
+      else if (!isRunner && age >= timeStopSec) exitReason = 'time stop'
+
+      // margin guard (SIM honesty): never let a sim loss exceed ~92% of margin
+      if (
+        !exitReason &&
+        pos.mode === 'sim' &&
+        this.settings.leverage > 1 &&
+        u.pnl <= -(pos.sizeUsd / this.settings.leverage) * 0.92
+      )
+        exitReason = 'liquidation guard'
 
       if (exitReason) await this.closePosition(pos, exitReason)
     }
@@ -626,9 +693,16 @@ export class Engine {
 
   private async openPosition(rt: BotRuntime, sig: Signal): Promise<boolean> {
     const equity = this.currentEquity()
-    let sizeUsd = Math.min(25000, Math.max(MIN_TRADE_USD, equity * rt.def.sizing))
+    // margin = slice of equity, notional = margin × leverage → the $ P&L the
+    // UI shows finally matches the price move (1% move at 5× on 30% margin
+    // ≈ +1.5% equity instead of the invisible +0.3% at 1×)
+    const margin = Math.min(equity, Math.max(5, equity * this.settings.positionPct))
+    const leverage = Math.min(20, Math.max(1, Math.round(this.settings.leverage)))
+    let sizeUsd = Math.min(25000, Math.max(MIN_TRADE_USD, margin * leverage))
     const mid = this.market.mid(sig.coin)
     if (mid == null || mid <= 0) return false
+
+    const plan = this.exitPlan(rt.def, sig.coin)
 
     let qty = sizeUsd / mid
     let entryPx = mid
@@ -660,6 +734,7 @@ export class Engine {
       sizeUsd = qty * entryPx
     }
 
+    const reason = `${leverage}× · ${sig.reason}`
     const row = await db.trade
       .create({
         data: {
@@ -670,7 +745,7 @@ export class Engine {
           qty,
           entryPx,
           status: 'open',
-          reason: sig.reason,
+          reason,
         },
       })
       .catch((e) => {
@@ -693,11 +768,12 @@ export class Engine {
       lastPnlPct: 0,
       openedAt: Date.now(),
       mode: this.settings.mode,
-      reason: sig.reason,
+      reason,
       adopted: false,
+      plan,
     })
 
-    rt.state.thought = `in $${sig.coin} · ${sig.reason}`
+    rt.state.thought = `in $${sig.coin} · ${leverage}× · ${sig.reason}`
     rt.state.thoughtAt = Date.now()
     rt.lastActiveAt = Date.now()
     return true
@@ -782,12 +858,19 @@ export class Engine {
     botName: string
     startingEquity: number
     goalMultiple: number
+    leverage?: number
+    positionPct?: number
+    riskProfile?: string
     privateKey?: string
     walletAddress?: string
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     const mode = payload.mode
     if (!['sim', 'testnet', 'mainnet'].includes(mode)) {
       return { ok: false, error: 'Mode tidak valid' }
+    }
+    const profile = (payload.riskProfile ?? this.settings.riskProfile) as RiskProfile
+    if (!['chill', 'balanced', 'turbo'].includes(profile)) {
+      return { ok: false, error: 'Risk profile tidak valid' }
     }
 
     let privateKey = this.settings.privateKey
@@ -812,6 +895,9 @@ export class Engine {
     this.settings.botName = payload.botName
     this.settings.startingEquity = Math.max(10, payload.startingEquity)
     this.settings.goalMultiple = Math.min(5, Math.max(1.05, payload.goalMultiple))
+    this.settings.leverage = Math.min(20, Math.max(1, Math.round(payload.leverage ?? this.settings.leverage)))
+    this.settings.positionPct = Math.min(1, Math.max(0.05, payload.positionPct ?? this.settings.positionPct))
+    this.settings.riskProfile = profile
     this.settings.privateKey = privateKey
     this.settings.walletAddress = walletAddress ?? null
 
@@ -834,6 +920,9 @@ export class Engine {
           botName: this.settings.botName,
           startingEquity: this.settings.startingEquity,
           goalMultiple: this.settings.goalMultiple,
+          leverage: this.settings.leverage,
+          positionPct: this.settings.positionPct,
+          riskProfile: this.settings.riskProfile,
           privateKey,
           walletAddress: this.settings.walletAddress,
           liveStartEquity: this.settings.liveStartEquity,
@@ -952,6 +1041,9 @@ export class Engine {
       wins,
       losses,
       winRate: tradesClosed > 0 ? wins / tradesClosed : 0,
+      leverage: this.settings.leverage,
+      positionPct: this.settings.positionPct,
+      riskProfile: this.settings.riskProfile,
       goal: { target: this.settings.goalMultiple, done: equity / (start || 1) >= this.settings.goalMultiple },
       equityCurve,
       crew: [...this.bots.values()].map((rt) => {

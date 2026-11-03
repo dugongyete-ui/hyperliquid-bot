@@ -80,7 +80,7 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
                           t.pnlPct >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'
                         }`}
                       >
-                        {fmtPct(t.pnlPct)}
+                        {fmtPct(t.pnlPct, Math.abs(t.pnlPct) < 1 ? 2 : 1)}
                       </p>
                       <p className="text-[12.5px] font-semibold text-[#8E8E93] tabular-nums">
                         <span className={t.pnl >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'}>
@@ -107,7 +107,7 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
                           t.pnlPct >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'
                         }`}
                       >
-                        {fmtPct(t.pnlPct)}
+                        {fmtPct(t.pnlPct, Math.abs(t.pnlPct) < 1 ? 2 : 1)}
                       </p>
                     </>
                   )}

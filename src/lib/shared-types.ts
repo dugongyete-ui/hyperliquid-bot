@@ -65,6 +65,8 @@ export interface NotificationRow {
   createdAt: number
 }
 
+export type RiskProfile = 'chill' | 'balanced' | 'turbo'
+
 export interface EngineSnapshot {
   ts: number
   feedOk: boolean
@@ -82,6 +84,9 @@ export interface EngineSnapshot {
   wins: number
   losses: number
   winRate: number
+  leverage: number
+  positionPct: number
+  riskProfile: RiskProfile
   goal: { target: number; done: boolean }
   equityCurve: EquityPointRow[]
   crew: CrewBotState[]
@@ -98,6 +103,9 @@ export interface SettingsPayload {
   botName: string
   startingEquity: number
   goalMultiple: number
+  leverage?: number
+  positionPct?: number
+  riskProfile?: RiskProfile
   privateKey?: string
   walletAddress?: string
 }

@@ -12,8 +12,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { AlertTriangle } from 'lucide-react'
-import type { EngineSnapshot, TradeMode } from '@/lib/shared-types'
+import { Slider } from '@/components/ui/slider'
+import { AlertTriangle, Gauge, Layers, Zap } from 'lucide-react'
+import type { EngineSnapshot, RiskProfile, TradeMode } from '@/lib/shared-types'
 
 interface SettingsModalProps {
   open: boolean
@@ -52,11 +53,20 @@ const MODES: {
   },
 ]
 
+const PROFILES: { key: RiskProfile; name: string; desc: string }[] = [
+  { key: 'chill', name: 'Chill', desc: 'Hold lebih lama · TP/SL longgar' },
+  { key: 'balanced', name: 'Balanced', desc: 'Seimbang antara sabar dan cepat' },
+  { key: 'turbo', name: 'Turbo', desc: 'Scalp cepat · cut loss disiplin' },
+]
+
 export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsModalProps) {
   const [mode, setMode] = useState<TradeMode>('sim')
   const [botName, setBotName] = useState('Grok Bot')
   const [startingEquity, setStartingEquity] = useState('1000')
   const [goalMultiple, setGoalMultiple] = useState('2')
+  const [leverage, setLeverage] = useState(5)
+  const [positionPct, setPositionPct] = useState(30)
+  const [riskProfile, setRiskProfile] = useState<RiskProfile>('balanced')
   const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
   const [saving, setSaving] = useState(false)
@@ -73,6 +83,9 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
       setBotName(state.botName)
       setStartingEquity(String(state.startingEquity))
       setGoalMultiple(String(state.goal.target))
+      setLeverage(state.leverage ?? 5)
+      setPositionPct(Math.round((state.positionPct ?? 0.3) * 100))
+      setRiskProfile(state.riskProfile ?? 'balanced')
       setWalletAddress(state.walletAddress ?? '')
       setPrivateKey('')
       setError(null)
@@ -81,6 +94,10 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
   }, [open, state])
 
   const isLive = mode !== 'sim'
+  const equityNow = state?.equity ?? (Number(startingEquity) || 1000)
+  const marginEst = (equityNow * positionPct) / 100
+  const notionalEst = marginEst * leverage
+  const equityImpactPerPctMove = ((marginEst * leverage) / equityNow) * 100
 
   async function save() {
     setSaving(true)
@@ -94,6 +111,9 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
           botName: botName.trim() || 'Grok Bot',
           startingEquity: Number(startingEquity) || 1000,
           goalMultiple: Number(goalMultiple) || 2,
+          leverage,
+          positionPct: positionPct / 100,
+          riskProfile,
           privateKey: privateKey.trim() || undefined,
           walletAddress: walletAddress.trim() || undefined,
         }),
@@ -130,7 +150,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
         <DialogHeader>
           <DialogTitle className="text-[22px] font-black tracking-tight">Crew Settings</DialogTitle>
           <DialogDescription className="text-[13px] font-semibold">
-            Atur mode trading, modal, dan target profit.
+            Atur mode, modal, leverage, dan gaya trading.
           </DialogDescription>
         </DialogHeader>
 
@@ -170,6 +190,105 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
           })}
         </div>
 
+        {/* ---------- trading engine settings ---------- */}
+        <div className="mt-4 rounded-2xl border-2 border-[#ECECEE] p-4">
+          <p className="flex items-center gap-1.5 text-[13px] font-black tracking-tight">
+            <Gauge size={15} strokeWidth={2.4} aria-hidden /> Ukuran & Risiko Trade
+          </p>
+
+          {/* leverage */}
+          <div className="mt-3.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="lev" className="flex items-center gap-1.5 text-[12px] font-extrabold">
+                <Zap size={13} strokeWidth={2.4} aria-hidden /> Leverage
+              </Label>
+              <span
+                className={`rounded-lg px-2 py-0.5 text-[13px] font-black tabular-nums ${
+                  leverage >= 10 ? 'bg-[#FEF2F2] text-[#DC2626]' : 'bg-[#F2F2F4] text-[#17171C]'
+                }`}
+              >
+                {leverage}×
+              </span>
+            </div>
+            <Slider
+              id="lev"
+              min={1}
+              max={20}
+              step={1}
+              value={[leverage]}
+              onValueChange={(v) => setLeverage(v[0] ?? 5)}
+              aria-label="Leverage"
+            />
+            <p className="text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+              Profit &amp; loss dikali {leverage}×. {leverage >= 10 ? 'Tinggi — hati-hati.' : 'Moderat.'}
+            </p>
+          </div>
+
+          {/* position size */}
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pos" className="flex items-center gap-1.5 text-[12px] font-extrabold">
+                <Layers size={13} strokeWidth={2.4} aria-hidden /> Ukuran posisi
+              </Label>
+              <span className="rounded-lg bg-[#F2F2F4] px-2 py-0.5 text-[13px] font-black tabular-nums">
+                {positionPct}%
+              </span>
+            </div>
+            <Slider
+              id="pos"
+              min={5}
+              max={100}
+              step={5}
+              value={[positionPct]}
+              onValueChange={(v) => setPositionPct(v[0] ?? 30)}
+              aria-label="Ukuran posisi"
+            />
+            <p className="text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+              Margin per trade: ≈ ${marginEst.toFixed(0)} → notional ≈ $
+              {notionalEst.toFixed(0)} ({leverage}×)
+            </p>
+          </div>
+
+          {/* risk profile */}
+          <div className="mt-4 space-y-2">
+            <Label className="text-[12px] font-extrabold">Gaya trading</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {PROFILES.map((p) => {
+                const active = riskProfile === p.key
+                return (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => setRiskProfile(p.key)}
+                    className={`rounded-xl border-2 px-2 py-2 text-center transition-all ${
+                      active
+                        ? 'border-[#17171C] bg-[#17171C] text-white'
+                        : 'border-[#ECECEE] bg-white text-[#17171C] hover:border-[#D6D6DB]'
+                    }`}
+                  >
+                    <span className="block text-[12.5px] font-black">{p.name}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+              {PROFILES.find((p) => p.key === riskProfile)?.desc} — bot pinter: profit jalan
+              pakai trailing stop (tidak di-kill timer), loss dipotong cepat.
+            </p>
+          </div>
+
+          {/* impact estimate */}
+          <div className="mt-3.5 rounded-xl bg-[#F2F2F4] px-3 py-2.5">
+            <p className="text-[11.5px] font-bold leading-snug text-[#3C3C43]">
+              Pergerakan harga 1% ≈{' '}
+              {equityImpactPerPctMove > 400
+                ? 'sangat agresif — turunkan leverage atau posisi'
+                : `≈ ${equityImpactPerPctMove.toFixed(1)}% equity`}{' '}
+              per trade aktif ({leverage}× × {positionPct}% modal).
+            </p>
+          </div>
+        </div>
+
         {isLive && (
           <div className="mt-4 space-y-3 rounded-2xl bg-[#FFF7ED] p-4">
             <p className="flex items-start gap-1.5 text-[12.5px] font-extrabold text-[#C2410C]">
@@ -178,6 +297,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
             </p>
             <p className="text-[11.5px] font-bold text-[#9A3412]">
               Minimum order exchange Hyperliquid: $10 per trade (dipakai juga di SIM agar realistis).
+              Leverage mengikuti batas maksimum tiap coin di exchange.
             </p>
             <div className="space-y-1.5">
               <Label htmlFor="pk" className="text-[12px] font-extrabold">

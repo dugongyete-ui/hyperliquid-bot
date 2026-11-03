@@ -8,6 +8,9 @@ interface Body {
   botName?: string
   startingEquity?: number
   goalMultiple?: number
+  leverage?: number
+  positionPct?: number
+  riskProfile?: string
   privateKey?: string
   walletAddress?: string
 }
@@ -21,6 +24,9 @@ export async function POST(req: Request) {
       botName: body.botName ?? 'Grok Bot',
       startingEquity: Number(body.startingEquity) || 1000,
       goalMultiple: Number(body.goalMultiple) || 2,
+      leverage: body.leverage != null ? Number(body.leverage) : undefined,
+      positionPct: body.positionPct != null ? Number(body.positionPct) : undefined,
+      riskProfile: body.riskProfile,
       privateKey: body.privateKey,
       walletAddress: body.walletAddress,
     })
