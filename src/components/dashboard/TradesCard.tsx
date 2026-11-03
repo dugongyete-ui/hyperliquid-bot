@@ -61,9 +61,13 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 truncate text-[16px] font-extrabold leading-tight">
                     ${t.coin}
-                    {t.side === 'short' && (
+                    {t.side === 'short' ? (
                       <span className="rounded-md bg-[#FEE2E2] px-1.5 py-0.5 text-[9.5px] font-black tracking-wide text-[#B91C1C]">
                         SHORT
+                      </span>
+                    ) : (
+                      <span className="rounded-md bg-[#DCFCE7] px-1.5 py-0.5 text-[9.5px] font-black tracking-wide text-[#15803D]">
+                        LONG
                       </span>
                     )}
                   </p>

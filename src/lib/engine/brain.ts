@@ -116,6 +116,10 @@ export function verdict(
     } else if (reg.kind === 'ranging' && meanRev) {
       score += 12
       pass.push('range → mean reversion')
+    } else if (reg.kind === 'ranging' && kind === 'breakout') {
+      // sideways tape: breakouts die at the range edge (grid wisdom —
+      // ranging markets pay mean-reverters, not chasers)
+      soft.push({ label: 'market sideways', pts: 10 })
     }
   }
 

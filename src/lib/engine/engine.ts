@@ -410,9 +410,12 @@ export class Engine {
    *    hold-window horizon, capped by the bot's personality ceiling
    *  - REGIME scaling via Kaufman ER (market.regime):
    *      trending → TP ×1.45, trail ×1.2, timeStop ×1.5  (let winners run)
-   *      ranging  → TP ×0.78, trail ×0.72, timeStop ×0.8 (grab profit fast)
+   *      ranging  → TP ×0.78, trail ×0.85, timeStop ×0.8 (grab profit fast)
    *  - stop distance stays pure-volatility — the disaster stop is not loosened
    *    by a trend, and not tightened into chop whipsaw
+   *  - MANAGE-TIME ladder (managePositions): breakeven lock at 55% of TP
+   *    ("kunci BEP" — worst case becomes a scratch, never a full stop), trail
+   *    width floored at 0.24% so 1m noise can't knock winners out for free
    *
    * MANUAL (autoExit = false) — the user's fixed tpPct/slPct, trail = profile
    * fraction of TP. Targets only, discipline identical.
@@ -439,14 +442,14 @@ export class Engine {
     const reg = this.market.regime(coin)
     const trending = reg?.kind === 'trending'
     const tpReg = trending ? 1.45 : 0.78
-    const trailReg = trending ? 1.2 : 0.72
+    const trailReg = trending ? 1.2 : 0.85
     const timeReg = trending ? 1.5 : 0.8
     const tpBase = clamp(1.7 * horizon * vol, 0.3, def.exit.tp * prof.tpMul)
     const slBase = clamp(1.15 * horizon * vol, 0.18, def.exit.sl * prof.slMul)
     return {
       tpPx: clamp(tpBase * tpReg, 0.2, def.exit.tp * prof.tpMul * 1.6),
       slPx: slBase,
-      trailPx: Math.max(0.18, prof.trailFrac * tpBase * trailReg),
+      trailPx: Math.max(0.22, prof.trailFrac * tpBase * trailReg),
       timeStopSec: Math.round(prof.timeStop * timeReg),
       regime: reg ? reg.kind : 'ranging', // no candle data yet → conservative ranging
       auto: true,
@@ -669,17 +672,23 @@ export class Engine {
 
       const age = (now - pos.openedAt) / 1000
       const { tpPx, slPx, trailPx, timeStopSec } = pos.plan
-
-      // a position that has shown ≥ half its TP target is a “runner”:
-      // the timer no longer applies — it rides the trailing stop instead
-      const isRunner = pos.peakPct >= tpPx * 0.5
+      // trail width has a noise floor — a trail tighter than ~0.24% gets
+      // knocked out by ordinary 1m chop for zero reason (data: exits at
+      // -0.10R after 2m were exactly this)
+      const trail = Math.max(trailPx, 0.24)
+      // breakeven lock ("kunci BEP"): once the trade has shown 55% of its
+      // target, the worst case becomes a tiny fee-covered exit instead of
+      // watching a winner rot into a full -1R stop loss
+      const beFloor = 0.05
+      const armed = pos.peakPct >= tpPx * 0.55
+      const dynStop = Math.max(beFloor, pos.peakPct - trail)
 
       let exitReason: string | null = null
       if (pos.lastPnlPct >= tpPx) exitReason = 'ambil profit'
       else if (pos.lastPnlPct <= -slPx) exitReason = 'stop loss'
-      else if (isRunner && pos.lastPnlPct <= pos.peakPct - trailPx)
-        exitReason = 'trailing stop'
-      else if (!isRunner && age >= timeStopSec) exitReason = 'habis waktu'
+      else if (armed && pos.lastPnlPct <= dynStop)
+        exitReason = pos.peakPct - trail > beFloor ? 'trailing stop' : 'kunci BEP'
+      else if (!armed && age >= timeStopSec) exitReason = 'habis waktu'
 
       // margin guard (SIM honesty): never let a sim loss exceed ~92% of margin
       if (
