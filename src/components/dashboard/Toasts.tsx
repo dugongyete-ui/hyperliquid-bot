@@ -2,6 +2,7 @@
 
 import type { NotificationRow } from '@/lib/shared-types'
 import { timeAgo } from '@/lib/format'
+import { Flame } from 'lucide-react'
 import { BotAvatar, HeadBotAvatar, type FaceVariant } from './BotAvatar'
 
 interface ToastsProps {
@@ -54,7 +55,14 @@ export function Toasts({ notifications, mode }: ToastsProps) {
                 <p className="truncate text-[13px] font-semibold text-[#8E8E93]">{n.body}</p>
               </div>
               {n.bigValue && (
-                <p className="shrink-0 text-[26px] font-black text-[#22C55E]">{n.bigValue}</p>
+                <p
+                  className={`flex shrink-0 items-center gap-0.5 text-[26px] font-black ${
+                    n.kind === 'streak' ? 'text-[#FF9F0A]' : 'text-[#22C55E]'
+                  }`}
+                >
+                  {n.kind === 'streak' && <Flame size={22} strokeWidth={2.4} aria-hidden />}
+                  {n.bigValue}
+                </p>
               )}
             </div>
             <div className="h-1.5 w-full bg-[#EFEFF1]">

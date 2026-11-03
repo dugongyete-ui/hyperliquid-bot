@@ -1,9 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Settings, ShieldAlert, Pause, Play } from 'lucide-react'
+import { Settings, ShieldAlert, Pause, Play, Flame, ArrowUpRight } from 'lucide-react'
 import type { EngineSnapshot, NotificationRow } from '@/lib/shared-types'
-import { fmtPct, fmtSignedUsd, fmtUsd } from '@/lib/format'
+import { fmtPct, fmtSignedUsd, fmtSmartUsd, fmtUsd } from '@/lib/format'
 import { BotAvatar, HeadBotAvatar } from '@/components/dashboard/BotAvatar'
 import { Sparkline } from '@/components/dashboard/Sparkline'
 import { CrewCard } from '@/components/dashboard/CrewCard'
@@ -38,11 +38,13 @@ export default function Home() {
       const data: EngineSnapshot = await res.json()
       setState(data)
 
-      // floating +$ bubble when equity ticks up
-      if (prevEquity.current !== null && data.equity > prevEquity.current + 0.5) {
+      // floating +$ bubble when equity ticks up (threshold scales with account size
+      // so small accounts celebrate too)
+      const tickFloor = Math.max(0.02, data.equity * 0.0002)
+      if (prevEquity.current !== null && data.equity > prevEquity.current + tickFloor) {
         const delta = data.equity - prevEquity.current
         const id = ++floaterId.current
-        setFloaters((f) => [...f.slice(-2), { id, text: fmtSignedUsd(delta, 0) }])
+        setFloaters((f) => [...f.slice(-2), { id, text: fmtSmartUsd(delta) }])
         setTimeout(() => setFloaters((f) => f.filter((x) => x.id !== id)), 2300)
       }
       prevEquity.current = data.equity
@@ -195,11 +197,17 @@ export default function Home() {
                   (state?.pnl ?? 0) >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'
                 }`}
               >
-                {fmtSignedUsd(state?.pnl ?? 0)} ({fmtPct(state?.pnlPct ?? 0, 0)})
+                {fmtSignedUsd(state?.pnl ?? 0)} (
+                {fmtPct(
+                  state?.pnlPct ?? 0,
+                  Math.abs(state?.pnlPct ?? 0) < 1 ? 2 : Math.abs(state?.pnlPct ?? 0) < 10 ? 1 : 0
+                )}
+                )
               </p>
               {(state?.streak ?? 0) >= 2 && (
                 <span className="animate-badge-pop flex items-center gap-1 rounded-full bg-gradient-to-r from-[#FF9F0A] to-[#FF6B00] px-2 py-[3px] text-[12px] font-black text-white shadow-sm">
-                  🔥 {state?.streak}
+                  <Flame size={13} strokeWidth={2.6} aria-hidden />
+                  {state?.streak}
                 </span>
               )}
             </div>
@@ -226,7 +234,6 @@ export default function Home() {
             crew={state?.crew ?? []}
             openCount={state?.openCount ?? 0}
             totalWins={state?.crew.reduce((a, b) => a + b.wins, 0) ?? 0}
-            pairsCount={state?.pairsCount ?? 0}
             onPickCoin={openChart}
           />
           <ActivityCard
@@ -250,17 +257,17 @@ export default function Home() {
             href="https://app.hyperliquid.xyz"
             target="_blank"
             rel="noreferrer"
-            className="rounded-full bg-white px-3 py-1.5 shadow-sm transition hover:text-[#17171C]"
+            className="flex items-center gap-1 rounded-full bg-white px-3 py-1.5 shadow-sm transition hover:text-[#17171C]"
           >
-            Mainnet ↗
+            Mainnet <ArrowUpRight size={12} strokeWidth={2.6} aria-hidden />
           </a>
           <a
             href="https://app.hyperliquid-testnet.xyz"
             target="_blank"
             rel="noreferrer"
-            className="rounded-full bg-white px-3 py-1.5 shadow-sm transition hover:text-[#17171C]"
+            className="flex items-center gap-1 rounded-full bg-white px-3 py-1.5 shadow-sm transition hover:text-[#17171C]"
           >
-            Testnet ↗
+            Testnet <ArrowUpRight size={12} strokeWidth={2.6} aria-hidden />
           </a>
           <span className="flex items-center gap-1">
             <BotAvatar face="happy" color="#2E90FA" size={16} /> powered by Hyperliquid

@@ -1,7 +1,8 @@
 'use client'
 
+import { Bot } from 'lucide-react'
 import type { TradeRow } from '@/lib/shared-types'
-import { fmtHeld, fmtPct, fmtPx, fmtSignedUsd, fmtSizeUsd } from '@/lib/format'
+import { fmtHeld, fmtPct, fmtPx, fmtSmartUsd, fmtSizeUsd } from '@/lib/format'
 import type { FaceVariant } from './BotAvatar'
 import { CoinBadge } from './CoinIcon'
 
@@ -32,7 +33,7 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
 
       {trades.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-8 text-center">
-          <div className="text-3xl">🤖</div>
+          <Bot size={34} strokeWidth={1.8} className="text-[#C7C7CC]" aria-hidden />
           <p className="text-[14px] font-bold text-[#8E8E93]">
             The crew is scanning the market…
           </p>
@@ -75,28 +76,31 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
                   {t.status === 'open' ? (
                     <>
                       <p
-                        className={`text-[16px] font-extrabold leading-tight ${
+                        className={`text-[16px] font-extrabold leading-tight tabular-nums ${
                           t.pnlPct >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'
                         }`}
                       >
                         {fmtPct(t.pnlPct)}
                       </p>
-                      <p className="text-[12.5px] font-semibold text-[#8E8E93]">
-                        {fmtPx(t.entryPx)}
+                      <p className="text-[12.5px] font-semibold text-[#8E8E93] tabular-nums">
+                        <span className={t.pnl >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'}>
+                          {fmtSmartUsd(t.pnl)}
+                        </span>{' '}
+                        · entry {fmtPx(t.entryPx)}
                       </p>
                     </>
                   ) : (
                     <>
                       <p
-                        className={`text-[16px] font-extrabold leading-tight ${
-                          t.pnl > 0.5
+                        className={`text-[16px] font-extrabold leading-tight tabular-nums ${
+                          t.pnl > 0.005
                             ? 'text-[#22C55E]'
-                            : t.pnl < -0.5
+                            : t.pnl < -0.005
                               ? 'text-[#EF4444]'
                               : 'text-[#8E8E93]'
                         }`}
                       >
-                        {Math.abs(t.pnl) < 0.5 ? '$0' : fmtSignedUsd(t.pnl, 0)}
+                        {fmtSmartUsd(t.pnl)}
                       </p>
                       <p
                         className={`text-[12.5px] font-semibold ${

@@ -41,7 +41,7 @@ export function IslandPill({ state }: { state: EngineSnapshot | null }) {
         </div>
 
         <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-black text-[#17171C] shadow-md backdrop-blur">
-          {state?.crew.length ?? 5} agents
+          {state?.crew.length ?? 5} online
         </span>
       </div>
     </div>

@@ -127,9 +127,13 @@ export function BotAvatar({
         </text>
       )}
       {status === 'holding' && mood === 'down' && (
-        <text x="86" y="46" fontSize="14" fontWeight="800">
-          💧
-        </text>
+        <g opacity="0.9">
+          {/* monochrome droplet (replaces the old emoji) */}
+          <path
+            d="M88 36 C88 36 82.8 42.6 82.8 46.2 A5.2 5.2 0 0 0 93.2 46.2 C93.2 42.6 88 36 88 36 Z"
+            fill="#9BC4E8"
+          />
+        </g>
       )}
     </svg>
   )

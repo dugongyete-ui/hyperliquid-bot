@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { AlertTriangle } from 'lucide-react'
 import type { EngineSnapshot, TradeMode } from '@/lib/shared-types'
 
 interface SettingsModalProps {
@@ -45,7 +46,7 @@ const MODES: {
   {
     key: 'mainnet',
     name: 'MAINNET',
-    desc: 'Order nyata · dana sungguhan ⚠ · app.hyperliquid.xyz',
+    desc: 'Order nyata · dana sungguhan · app.hyperliquid.xyz',
     tag: 'Real funds',
     color: '#FF4D00',
   },
@@ -171,8 +172,9 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
 
         {isLive && (
           <div className="mt-4 space-y-3 rounded-2xl bg-[#FFF7ED] p-4">
-            <p className="text-[12.5px] font-extrabold text-[#C2410C]">
-              ⚠ {mode === 'mainnet' ? 'DANA SUNGGUHAN — bot akan membuat order nyata di Hyperliquid mainnet.' : 'Mode testnet: butuh dana virtual dari faucet testnet Hyperliquid.'}
+            <p className="flex items-start gap-1.5 text-[12.5px] font-extrabold text-[#C2410C]">
+              <AlertTriangle size={15} strokeWidth={2.4} className="mt-[1px] shrink-0" aria-hidden />
+              {mode === 'mainnet' ? 'DANA SUNGGUHAN — bot akan membuat order nyata di Hyperliquid mainnet.' : 'Mode testnet: butuh dana virtual dari faucet testnet Hyperliquid.'}
             </p>
             <p className="text-[11.5px] font-bold text-[#9A3412]">
               Minimum order exchange Hyperliquid: $10 per trade (dipakai juga di SIM agar realistis).
@@ -240,7 +242,8 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
               <Input
                 id="goal"
                 type="number"
-                min={1.1}
+                min={1.05}
+                max={5}
                 step={0.25}
                 value={goalMultiple}
                 onChange={(e) => setGoalMultiple(e.target.value)}

@@ -19,14 +19,16 @@ export const COIN_META: Record<string, CoinMeta> = {
   OP: { color: '#FF0420', label: 'OP' },
   NEAR: { color: '#00C08B', label: 'N' },
   TIA: { color: '#7B2BF9', label: 'T' },
-  WIF: { color: '#F5A542', label: '🐕' },
-  BONK: { color: '#F5AC24', label: '🐶' },
-  PEPE: { color: '#3DA842', label: '🐸' },
-  TRUMP: { color: '#C9A24B', label: '🎩' },
-  FARTCOIN: { color: '#39C6A5', label: '💨' },
-  HYPE: { color: '#0FBF9F', label: '⚡' },
-  JUP: { color: '#8BC34A', label: '🪐' },
-  PURR: { color: '#F472B6', label: '🐱' },
+  // monochrome-safe letter monograms — real logos load from CoinGecko via /api/coin-icon,
+  // these are only the offline fallback
+  WIF: { color: '#F5A542', label: 'W' },
+  BONK: { color: '#F5AC24', label: 'B' },
+  PEPE: { color: '#3DA842', label: 'P' },
+  TRUMP: { color: '#C9A24B', label: 'T' },
+  FARTCOIN: { color: '#39C6A5', label: 'F' },
+  HYPE: { color: '#0FBF9F', label: 'H' },
+  JUP: { color: '#8BC34A', label: 'J' },
+  PURR: { color: '#F472B6', label: 'P' },
 }
 
 export function coinMeta(coin: string): CoinMeta {

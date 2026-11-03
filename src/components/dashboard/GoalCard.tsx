@@ -1,5 +1,6 @@
 'use client'
 
+import { Check } from 'lucide-react'
 import { fmtMult } from '@/lib/format'
 
 interface GoalCardProps {
@@ -21,7 +22,9 @@ export function GoalCard({ goal, multiple }: GoalCardProps) {
         <h2 className="text-[22px] font-black tracking-tight">Goal: {goal}×</h2>
         <p className="text-[14px] font-bold">
           {done ? (
-            <span className="text-[#2E6BFF]">✓ Done</span>
+            <span className="flex items-center gap-1 text-[#2E6BFF]">
+              <Check size={15} strokeWidth={3.2} aria-hidden /> Done
+            </span>
           ) : (
             <span className="text-[#8E8E93]">
               {fmtMult(Math.max(0, goal - multiple))} to go

@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion'
 import type { TradeRow } from '@/lib/shared-types'
-import { fmtSignedUsd } from '@/lib/format'
+import { fmtSmartUsd } from '@/lib/format'
 import { CoinIcon } from './CoinIcon'
 
 interface ActivityCardProps {
@@ -118,7 +118,7 @@ export function ActivityCard({ trades, wins, losses, onPickCoin }: ActivityCardP
                 {ev.verb === 'sold' && ev.pnl != null && (
                   <span className={ev.pnl >= 0 ? 'font-extrabold text-[#22C55E]' : 'font-extrabold text-[#EF4444]'}>
                     {' '}
-                    {fmtSignedUsd(ev.pnl)} ({(ev.pnlPct ?? 0).toFixed(1)}%)
+                    {fmtSmartUsd(ev.pnl)} ({(ev.pnlPct ?? 0).toFixed(1)}%)
                   </span>
                 )}
                 {ev.verb === 'sold' && ev.detail && (

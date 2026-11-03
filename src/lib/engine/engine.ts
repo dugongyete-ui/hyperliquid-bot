@@ -40,6 +40,7 @@ interface OpenPosition {
   entryPx: number
   peakPct: number
   lastPnlPct: number
+  lastPnlUsd: number // exchange-authoritative unrealized P&L (live modes)
   openedAt: number
   mode: TradeMode
   reason: string
@@ -178,6 +179,7 @@ export class Engine {
       entryPx: t.entryPx,
       peakPct: 0,
       lastPnlPct: 0,
+      lastPnlUsd: 0,
       openedAt: t.openedAt.getTime(),
       mode: t.mode as TradeMode,
       reason: t.reason,
@@ -292,8 +294,15 @@ export class Engine {
       const pnl = pos.qty * (mark - pos.entryPx)
       return { pnl, pnlPct: pos.sizeUsd > 0 ? (pnl / pos.sizeUsd) * 100 : 0 }
     }
-    const pnl = (pos.lastPnlPct / 100) * pos.sizeUsd
-    return { pnl, pnlPct: pos.lastPnlPct }
+    // live: mark-to-market from the last synced qty/entry whenever we have a fresh mid,
+    // otherwise fall back to the exchange's authoritative unrealized figure
+    const mid = this.market.mid(pos.coin)
+    if (mid != null && pos.qty > 0) {
+      const pnl = pos.qty * (mid - pos.entryPx)
+      return { pnl, pnlPct: pos.sizeUsd > 0 ? (pnl / pos.sizeUsd) * 100 : 0 }
+    }
+    const pnl = pos.lastPnlUsd || (pos.lastPnlPct / 100) * pos.sizeUsd
+    return { pnl, pnlPct: pos.sizeUsd > 0 ? (pnl / pos.sizeUsd) * 100 : 0 }
   }
 
   currentEquity(): number {
@@ -397,6 +406,7 @@ export class Engine {
         entryPx: p.entryPx,
         peakPct: Math.max(0, p.unrealizedPnl / (p.positionValue || 1)) * 100,
         lastPnlPct: p.positionValue > 0 ? (p.unrealizedPnl / p.positionValue) * 100 : 0,
+        lastPnlUsd: p.unrealizedPnl,
         openedAt: Date.now(),
         mode: this.settings.mode,
         reason: 'adopted existing position',
@@ -412,12 +422,13 @@ export class Engine {
       const ex = st.positions.find((p) => p.coin === pos.coin && p.szi > 0)
       if (ex) {
         pos.lastPnlPct = ex.positionValue > 0 ? (ex.unrealizedPnl / ex.positionValue) * 100 : 0
+        pos.lastPnlUsd = ex.unrealizedPnl
         pos.peakPct = Math.max(pos.peakPct, pos.lastPnlPct)
         if (ex.entryPx > 0) pos.entryPx = ex.entryPx
         if (ex.szi > 0) pos.qty = ex.szi
       } else if (Date.now() - pos.openedAt > 20_000) {
         // position vanished on the exchange (closed externally)
-        await this.finalizeClose(pos, 'closed on exchange', ex?.entryPx ?? null, (pos.lastPnlPct / 100) * pos.sizeUsd)
+        await this.finalizeClose(pos, 'closed on exchange', ex?.entryPx ?? null, this.unrealizedFor(pos).pnl)
       }
     }
   }
@@ -432,10 +443,13 @@ export class Engine {
       if (pos.mode === 'sim') {
         const mark = this.market.mid(pos.coin)
         if (mark == null) continue
-        const u = this.unrealizedFor(pos)
-        pos.lastPnlPct = u.pnlPct
-        pos.peakPct = Math.max(pos.peakPct, u.pnlPct)
       }
+
+      // one mark-to-market path for every mode → UI, equity and exits all agree
+      const u = this.unrealizedFor(pos)
+      pos.lastPnlPct = u.pnlPct
+      pos.lastPnlUsd = u.pnl
+      pos.peakPct = Math.max(pos.peakPct, u.pnlPct)
 
       const age = (now - pos.openedAt) / 1000
       let exitReason: string | null = null
@@ -477,7 +491,7 @@ export class Engine {
         }
         return
       }
-      pnl = (pos.lastPnlPct / 100) * pos.sizeUsd
+      pnl = this.unrealizedFor(pos).pnl
       exitPx = this.market.mid(pos.coin) ?? pos.entryPx
     } else {
       return
@@ -538,7 +552,7 @@ export class Engine {
             kind: 'streak',
             title: `Hot streak: ${this.streak} wins in a row`,
             body: `${this.streak} wins across the crew · keep it rolling`,
-            bigValue: `🔥${this.streak}`,
+            bigValue: String(this.streak),
           })
           this.nextStreakMilestone =
             STREAK_MILESTONES.find((m) => m > this.streak) ?? this.nextStreakMilestone + 50
@@ -598,7 +612,7 @@ export class Engine {
       if (openForMode.some((p) => p.botKey === rt.def.key)) continue
 
       const idleSec = (now - rt.lastActiveAt) / 1000
-      const bored = idleSec > 50
+      const bored = idleSec > 90
       const sig = evaluateSignal(rt.def, this.market, bored)
       if (!sig || heldCoins.has(sig.coin)) continue
 
@@ -797,7 +811,7 @@ export class Engine {
     this.settings.mode = mode
     this.settings.botName = payload.botName
     this.settings.startingEquity = Math.max(10, payload.startingEquity)
-    this.settings.goalMultiple = Math.min(100, Math.max(1.05, payload.goalMultiple))
+    this.settings.goalMultiple = Math.min(5, Math.max(1.05, payload.goalMultiple))
     this.settings.privateKey = privateKey
     this.settings.walletAddress = walletAddress ?? null
 
@@ -940,7 +954,15 @@ export class Engine {
       winRate: tradesClosed > 0 ? wins / tradesClosed : 0,
       goal: { target: this.settings.goalMultiple, done: equity / (start || 1) >= this.settings.goalMultiple },
       equityCurve,
-      crew: [...this.bots.values()].map((rt) => ({ ...rt.state })),
+      crew: [...this.bots.values()].map((rt) => {
+        // a bot's live P&L = realized + its open position's unrealized P&L
+        // → crew cards, the trades list and the equity header all tie out exactly
+        const holding = this.positions.find(
+          (p) => p.mode === mode && p.botKey === rt.def.key
+        )
+        const openPnl = holding ? this.unrealizedFor(holding).pnl : 0
+        return { ...rt.state, pnl: rt.state.pnl + openPnl, openPnl }
+      }),
       trades,
       notifications: this.notifications.filter((n) => this.unseenIds.has(n.id)).slice(0, 5),
       openCount: openRows.length,

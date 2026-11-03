@@ -80,7 +80,6 @@ export function CoinIcon({ coin, size = 28, className }: CoinIconProps) {
   const bg = meta.bg
     ? `linear-gradient(135deg, ${meta.color}, ${meta.bg})`
     : `linear-gradient(135deg, ${meta.color}, ${meta.color}CC)`
-  const isEmoji = /\p{Extended_Pictographic}/u.test(meta.label)
   return (
     <div
       className={`flex shrink-0 items-center justify-center rounded-full shadow-sm ${className ?? ''}`}
@@ -90,7 +89,7 @@ export function CoinIcon({ coin, size = 28, className }: CoinIconProps) {
     >
       <span
         className="leading-none font-extrabold text-white"
-        style={{ fontSize: size * (isEmoji ? 0.46 : 0.42) }}
+        style={{ fontSize: size * 0.42 }}
       >
         {meta.label}
       </span>

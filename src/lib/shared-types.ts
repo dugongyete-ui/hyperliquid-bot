@@ -8,7 +8,8 @@ export interface CrewBotState {
   name: string
   color: string
   face: string
-  pnl: number
+  pnl: number // realized + unrealized (live, synced with equity)
+  openPnl: number // unrealized part only (0 when flat)
   wins: number
   losses: number
   status: 'scanning' | 'cooling' | 'holding' | 'paused'

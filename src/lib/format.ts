@@ -14,6 +14,14 @@ export function fmtSignedUsd(n: number, decimals = 2): string {
   return (n >= 0 ? '+' : '-') + fmtUsd(Math.abs(n), decimals).replace('-', '')
 }
 
+/** Signed USD that keeps small P&L readable — cents show until $10, so a
+ * +$0.42 win never renders as a lying "$0". */
+export function fmtSmartUsd(n: number): string {
+  const a = Math.abs(n)
+  const d = a >= 100 ? 0 : a >= 10 ? 1 : 2
+  return fmtSignedUsd(n, d)
+}
+
 export function fmtPct(n: number, decimals = 1): string {
   return (n >= 0 ? '+' : '') + n.toFixed(decimals) + '%'
 }

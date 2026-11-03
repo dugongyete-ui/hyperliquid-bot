@@ -96,7 +96,9 @@ export const CREW: CrewDef[] = [
     face: 'smirk',
     universe: ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'AVAX'],
     sizing: 0.25,
-    exit: { tp: 0.35, sl: 0.45, timeStop: 100 },
+    // reward must stay bigger than risk: the old 0.35/0.45 setup was inverted
+    // and quietly dragged the equity down on every stopped scalp
+    exit: { tp: 0.5, sl: 0.3, trail: 0.28, timeStop: 100 },
     winCooldown: [15, 35],
     lossCooldown: [40, 80],
     scanningThoughts: [
