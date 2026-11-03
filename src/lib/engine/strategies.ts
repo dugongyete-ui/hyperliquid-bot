@@ -1,4 +1,4 @@
-import type { MarketData } from './market'
+import { MarketData, MIN_VOL_24H_USD } from './market'
 import type { CrewDef } from './crew'
 
 export interface Signal {
@@ -7,9 +7,28 @@ export interface Signal {
 }
 
 /**
- * Entry signals — each bot has its own personality. `bored` relaxes
- * thresholds so an idle bot eventually finds something (keeps the crew lively).
+ * Entry signals — each bot scans the ENTIRE live Hyperliquid perp universe
+ * (downloaded from the exchange, delisted markets excluded) instead of a
+ * hardcoded watchlist. Every strategy applies its own liquidity floor so the
+ * crew only trades markets deep enough to enter/exit cleanly:
+ *
+ *   momentum   ≥ $5M  24h vol   · breakout of the 2-minute leaders
+ *   sniper     ≥ $5M  24h vol   · range-high breaks with a tight spread
+ *   dipHunter  ≥ $10M 24h vol   · RSI dips on majors only (mean reversion)
+ *   whaleTail  ≥ $1M  24h vol   · whale volume prints, small caps allowed
+ *   scalper    ≥ $5M  24h vol   · micro structure, needs a tight book
+ *
+ * `bored` relaxes thresholds so an idle bot eventually finds something
+ * (keeps the crew lively) — but never the liquidity floor itself.
  */
+const FLOORS = {
+  momentum: 5_000_000,
+  sniper: 5_000_000,
+  dipHunter: 10_000_000,
+  whaleTail: 1_000_000,
+  scalper: 5_000_000,
+} as const
+
 export function evaluateSignal(
   def: CrewDef,
   market: MarketData,
@@ -31,10 +50,8 @@ export function evaluateSignal(
 }
 
 function momentumSignal(market: MarketData, relax: number): Signal | null {
-  const candidates = [...market.mids.keys()].filter((c) => c !== 'BTC' || true)
-  const watched = candidates.filter((c) => ['BTC', 'ETH', 'SOL', 'SUI', 'JUP', 'HYPE', 'TIA', 'APT'].includes(c))
   const scored: Array<{ coin: string; ret: number; ratio: number }> = []
-  for (const coin of watched) {
+  for (const coin of market.liquidCoins(FLOORS.momentum)) {
     const ret = market.retPct(coin, 48) // ~2 minutes of ticks
     const ratio = market.buySellRatio(coin, 5)
     if (ret == null || ratio == null) continue
@@ -50,24 +67,27 @@ function momentumSignal(market: MarketData, relax: number): Signal | null {
 }
 
 function sniperSignal(market: MarketData, relax: number): Signal | null {
-  const watched = ['SOL', 'DOGE', 'WIF', 'BONK', 'PEPE', 'TRUMP', 'FARTCOIN', 'HYPE']
-  for (const coin of watched) {
+  const scored: Array<{ coin: string; mid: number; high: number; spread: number | null }> = []
+  for (const coin of market.liquidCoins(FLOORS.sniper)) {
     const mid = market.mid(coin)
     const high = market.highN(coin, 20)
-    const spread = market.spreadPct(coin)
     if (mid == null || high == null) continue
-    const spreadOk = spread == null || spread < 0.09
-    if (mid > high * (1 + 0.0002 * relax) && spreadOk) {
-      return { coin, reason: 'broke 20m range high' }
+    scored.push({ coin, mid, high, spread: market.spreadPct(coin) })
+  }
+  // prefer the strongest breakout (distance above the range high)
+  scored.sort((a, b) => b.mid / b.high - a.mid / a.high)
+  for (const s of scored) {
+    const spreadOk = s.spread == null || s.spread < 0.09
+    if (s.mid > s.high * (1 + 0.0002 * relax) && spreadOk) {
+      return { coin: s.coin, reason: 'broke 20m range high' }
     }
   }
   return null
 }
 
 function dipHunterSignal(market: MarketData, relax: number): Signal | null {
-  const watched = ['BTC', 'ETH', 'SOL', 'AVAX', 'LINK', 'XRP', 'NEAR', 'ARB', 'OP']
   const scored: Array<{ coin: string; rsi: number; ret: number }> = []
-  for (const coin of watched) {
+  for (const coin of market.liquidCoins(FLOORS.dipHunter)) {
     const rsi = market.rsi14(coin)
     const ret = market.retPct(coin, 60)
     if (rsi == null || ret == null) continue
@@ -83,9 +103,8 @@ function dipHunterSignal(market: MarketData, relax: number): Signal | null {
 }
 
 function whaleTailSignal(market: MarketData, relax: number): Signal | null {
-  const watched = ['WIF', 'BONK', 'PEPE', 'TRUMP', 'FARTCOIN', 'DOGE', 'HYPE', 'JUP']
   const scored: Array<{ coin: string; ratio: number }> = []
-  for (const coin of watched) {
+  for (const coin of market.liquidCoins(FLOORS.whaleTail)) {
     const stats = market.volStats(coin)
     if (!stats || !stats.bull) continue
     scored.push({ coin, ratio: stats.ratio })
@@ -100,9 +119,8 @@ function whaleTailSignal(market: MarketData, relax: number): Signal | null {
 }
 
 function scalperSignal(market: MarketData, relax: number): Signal | null {
-  const watched = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'AVAX']
   const scored: Array<{ coin: string; imb: number; spread: number; micro: number }> = []
-  for (const coin of watched) {
+  for (const coin of market.liquidCoins(FLOORS.scalper)) {
     const imb = market.imbalance(coin)
     const spread = market.spreadPct(coin)
     const micro = market.retPct(coin, 2)
@@ -110,13 +128,16 @@ function scalperSignal(market: MarketData, relax: number): Signal | null {
     scored.push({ coin, imb, spread, micro })
   }
   scored.sort((a, b) => b.imb - a.imb)
-  const best = scored[0]
-  if (!best) return null
-  if (best.spread < 0.045 && best.imb > 1.5 - (1 - relax) * 0.3 && best.micro > -0.005) {
-    return {
-      coin: best.coin,
-      reason: `spread ${best.spread.toFixed(3)}% · bids stacked`,
+  for (const s of scored) {
+    if (s.spread < 0.045 && s.imb > 1.5 - (1 - relax) * 0.3 && s.micro > -0.005) {
+      return {
+        coin: s.coin,
+        reason: `spread ${s.spread.toFixed(3)}% · bids stacked`,
+      }
     }
   }
   return null
 }
+
+/** exported for the engine's liquidity cap math */
+export const GLOBAL_MIN_VOL = MIN_VOL_24H_USD

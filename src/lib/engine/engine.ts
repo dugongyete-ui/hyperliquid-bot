@@ -391,6 +391,11 @@ export class Engine {
     if (!this.ready) return
     this.tickCount++
     const now = Date.now()
+    // coins we currently hold always get the freshest candles/book first
+    // (take-profit / stop-loss decisions stay precise)
+    this.market.setPriority(
+      this.positions.filter((p) => p.mode === this.settings.mode).map((p) => p.coin)
+    )
     await this.market.update()
 
     if (this.settings.mode !== 'sim') {
@@ -697,8 +702,23 @@ export class Engine {
     // UI shows finally matches the price move (1% move at 5× on 30% margin
     // ≈ +1.5% equity instead of the invisible +0.3% at 1×)
     const margin = Math.min(equity, Math.max(5, equity * this.settings.positionPct))
-    const leverage = Math.min(20, Math.max(1, Math.round(this.settings.leverage)))
+    // respect the exchange's per-coin max leverage (BTC 40×, majors 20-25×,
+    // some alts only 3-5×) — never fight the market rules
+    const maxLev = this.market.maxLeverageOf(sig.coin)
+    const leverage = Math.min(20, maxLev, Math.max(1, Math.round(this.settings.leverage)))
     let sizeUsd = Math.min(25000, Math.max(MIN_TRADE_USD, margin * leverage))
+    // liquidity guard: never take more than ~0.1% of the coin's 24h volume so
+    // entries AND exits stay cheap even on thin markets
+    const vol24 = this.market.volumeUsd24h(sig.coin)
+    if (vol24 > 0 && sizeUsd > vol24 * 0.001) {
+      sizeUsd = Math.floor(vol24 * 0.001)
+    }
+    if (sizeUsd < MIN_TRADE_USD) {
+      rt.state.thought = `$${sig.coin} too thin to trade safely`
+      rt.state.thoughtAt = Date.now()
+      rt.cooldownUntil = Date.now() + 60_000
+      return false
+    }
     const mid = this.market.mid(sig.coin)
     if (mid == null || mid <= 0) return false
 

@@ -112,7 +112,13 @@ export default function Home() {
             <h1 className="truncate text-[26px] font-black leading-tight tracking-tight">
               {state?.botName ?? 'Grok Bot'}
             </h1>
-            <p className="text-[14px] font-bold text-[#8E8E93]">Hyperliquid perps · 5 agents</p>
+            <p className="text-[14px] font-bold text-[#8E8E93]">
+              Hyperliquid perps
+              {(state?.pairsCount ?? 0) > 0 && (
+                <span className="text-[#17171C]"> · {state?.pairsCount} pairs</span>
+              )}{' '}
+              · 5 agents
+            </p>
           </div>
           <div className="flex items-center gap-1.5">
             <button

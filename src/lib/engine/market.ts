@@ -1,5 +1,11 @@
 // Real-time Hyperliquid market data (mainnet prices) with graceful synthetic fallback.
 // All SIM trading + signals use these live prices.
+//
+// FULL UNIVERSE: the tradable set is downloaded live from `metaAndAssetCtxs`
+// (every active perp on Hyperliquid, delisted ones skipped) instead of a
+// hardcoded list. Mids for the whole universe arrive in one `allMids` call;
+// 1m candles + L2 books rotate through it with priority for held coins and
+// the most-traded pairs.
 
 const HL_INFO = 'https://api.hyperliquid.xyz/info'
 
@@ -19,10 +25,14 @@ export interface BookTop {
   askSz: number
 }
 
-export const UNIVERSE = [
+/** bootstrap list — only used until the first meta download lands */
+const BOOTSTRAP = [
   'BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'AVAX', 'LINK', 'SUI', 'APT', 'ARB',
   'OP', 'NEAR', 'TIA', 'WIF', 'BONK', 'PEPE', 'TRUMP', 'FARTCOIN', 'HYPE', 'JUP',
 ]
+
+/** hard liquidity gate: coins below this 24h volume are dead markets — never traded */
+export const MIN_VOL_24H_USD = 500_000
 
 export interface TickerRow {
   coin: string
@@ -31,6 +41,8 @@ export interface TickerRow {
 }
 
 const HISTORY_MAX = 200
+const CANDLES_PER_TICK = 7
+const BOOKS_PER_TICK = 5
 
 async function infoPost<T>(body: unknown, timeoutMs = 4500): Promise<T> {
   const res = await fetch(HL_INFO, {
@@ -51,12 +63,28 @@ export class MarketData {
   book = new Map<string, BookTop>()
   feedOk = true
   lastUpdateAt = 0
-  pairsCount = 0
+  pairsCount = 0 // active perps in the live universe
   ticker: TickerRow[] = []
+
+  /** live universe (active perps only), refreshed from the exchange */
+  universe: string[] = [...BOOTSTRAP]
+  /** 24h notional volume per coin (from asset ctxs) */
+  private vol24h = new Map<string, number>()
+  /** exchange max leverage per coin */
+  private maxLev = new Map<string, number>()
+  /** coins the engine wants fresh data for right now (open positions) */
+  private priority = new Set<string>()
 
   private failures = 0
   private tick = 0
   private lastMetaAt = 0
+  private candleCursor = 0
+  private bookCursor = 0
+
+  /** engine calls this every tick with the coins it currently holds */
+  setPriority(coins: string[]) {
+    this.priority = new Set(coins.filter((c) => this.mids.has(c) || this.universe.includes(c)))
+  }
 
   async update() {
     this.tick++
@@ -67,7 +95,7 @@ export class MarketData {
     }
     try {
       const raw = await infoPost<Record<string, string>>({ type: 'allMids' })
-      for (const coin of UNIVERSE) {
+      for (const coin of this.universe) {
         const v = raw[coin]
         if (!v) continue
         const px = parseFloat(v)
@@ -89,18 +117,46 @@ export class MarketData {
       }
     }
 
-    // rotate candles: 5 coins per tick
-    const candleStart = (this.tick * 5) % UNIVERSE.length
-    for (let i = 0; i < 5; i++) {
-      const coin = UNIVERSE[(candleStart + i) % UNIVERSE.length]
-      this.refreshCandles(coin).catch(() => {})
+    this.rotateCandles()
+    this.rotateBooks()
+  }
+
+  /** fresh 1m candles: open positions every tick, then round-robin by volume rank */
+  private rotateCandles() {
+    const wanted = new Set(this.priority)
+    const ranked = this.rankByVolume().filter((c) => !this.priority.has(c))
+    if (ranked.length > 0) {
+      for (let i = 0; i < CANDLES_PER_TICK; i++) {
+        wanted.add(ranked[(this.candleCursor + i) % ranked.length])
+      }
+      this.candleCursor = (this.candleCursor + CANDLES_PER_TICK) % ranked.length
     }
-    // rotate books: 4 coins per tick
-    const bookStart = (this.tick * 4 + 7) % UNIVERSE.length
-    for (let i = 0; i < 4; i++) {
-      const coin = UNIVERSE[(bookStart + i) % UNIVERSE.length]
-      this.refreshBook(coin).catch(() => {})
+    for (const coin of wanted) {
+      if (this.mids.has(coin)) this.refreshCandles(coin).catch(() => {})
     }
+  }
+
+  /** fresh L2 book top: same scheme, its own slower cursor */
+  private rotateBooks() {
+    const wanted = new Set(this.priority)
+    const ranked = this.rankByVolume().filter((c) => !this.priority.has(c))
+    if (ranked.length > 0) {
+      for (let i = 0; i < BOOKS_PER_TICK; i++) {
+        wanted.add(ranked[(this.bookCursor + i) % ranked.length])
+      }
+      this.bookCursor = (this.bookCursor + BOOKS_PER_TICK) % ranked.length
+    }
+    for (const coin of wanted) {
+      if (this.mids.has(coin)) this.refreshBook(coin).catch(() => {})
+    }
+  }
+
+  /** active universe sorted by 24h volume desc (most tradable first) */
+  private rankByVolume(): string[] {
+    if (this.vol24h.size === 0) return this.universe
+    return [...this.universe].sort(
+      (a, b) => (this.vol24h.get(b) ?? 0) - (this.vol24h.get(a) ?? 0)
+    )
   }
 
   private async refreshCandles(coin: string) {
@@ -143,24 +199,48 @@ export class MarketData {
     })
   }
 
-  /** perp universe + 24h movers for the ticker strip (top by 24h volume) */
+  /**
+   * Download the FULL perp universe: names, delisted flag, max leverage,
+   * 24h volume, mark/prev-day prices. Delisted markets are excluded —
+   * they can no longer be traded.
+   */
   private async refreshMeta() {
     const raw = await infoPost<[unknown, Array<Record<string, string>>]>({
       type: 'metaAndAssetCtxs',
     })
-    const universe = (raw[0] as { universe?: Array<{ name?: string }> }).universe ?? []
+    const meta = raw[0] as {
+      universe?: Array<{ name?: string; isDelisted?: boolean; maxLeverage?: number }>
+    }
+    const universe = meta.universe ?? []
     const ctxs = raw[1] ?? []
-    this.pairsCount = universe.length
     const rows: Array<TickerRow & { vlm: number }> = []
+    const nextUniverse: string[] = []
     for (let i = 0; i < Math.min(universe.length, ctxs.length); i++) {
-      const name = universe[i]?.name
+      const u = universe[i]
       const ctx = ctxs[i]
-      if (!name || !ctx) continue
+      const name = u?.name
+      if (!name || u?.isDelisted || !ctx) continue
       const px = parseFloat(ctx.markPx)
       const prev = parseFloat(ctx.prevDayPx)
       const vlm = parseFloat(ctx.dayNtlVlm)
-      if (!isFinite(px) || !isFinite(prev) || prev <= 0 || !isFinite(vlm)) continue
-      rows.push({ coin: name, px, changePct: (px / prev - 1) * 100, vlm })
+      if (!isFinite(px) || px <= 0) continue
+      nextUniverse.push(name)
+      this.vol24h.set(name, isFinite(vlm) ? vlm : 0)
+      this.maxLev.set(name, u?.maxLeverage ?? 20)
+      if (isFinite(prev) && prev > 0 && isFinite(vlm)) {
+        rows.push({ coin: name, px, changePct: (px / prev - 1) * 100, vlm })
+      }
+    }
+    if (nextUniverse.length > 0) {
+      this.universe = nextUniverse
+      this.pairsCount = nextUniverse.length
+      // drop mids of coins that left the universe
+      for (const coin of [...this.mids.keys()]) {
+        if (!this.universe.includes(coin)) {
+          this.mids.delete(coin)
+          this.history.delete(coin)
+        }
+      }
     }
     rows.sort((a, b) => b.vlm - a.vlm)
     this.ticker = rows.slice(0, 24).map(({ coin, px, changePct }) => ({ coin, px, changePct }))
@@ -181,6 +261,25 @@ export class MarketData {
 
   mid(coin: string): number | null {
     return this.mids.get(coin) ?? null
+  }
+
+  /** all coins with a live mid (the whole active universe after first meta) */
+  allCoins(): string[] {
+    return [...this.mids.keys()]
+  }
+
+  /** coins liquid enough to trade (24h volume gate) */
+  liquidCoins(minVolUsd: number = MIN_VOL_24H_USD): string[] {
+    if (this.vol24h.size === 0) return this.allCoins()
+    return this.allCoins().filter((c) => (this.vol24h.get(c) ?? 0) >= minVolUsd)
+  }
+
+  volumeUsd24h(coin: string): number {
+    return this.vol24h.get(coin) ?? 0
+  }
+
+  maxLeverageOf(coin: string): number {
+    return this.maxLev.get(coin) ?? 20
   }
 
   retPct(coin: string, ticks: number): number | null {
