@@ -1151,6 +1151,8 @@ export class Engine {
     dailyLossStopPct?: number
     privateKey?: string
     walletAddress?: string
+    /** a bundled preset package was applied → fresh SIM on save (if SIM active) */
+    presetReset?: boolean
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     const mode = payload.mode
     if (!['sim', 'testnet', 'mainnet'].includes(mode)) {
@@ -1179,6 +1181,15 @@ export class Engine {
     }
 
     const modeChanged = mode !== this.settings.mode
+    // capture the config BEFORE applying, to detect what the save actually changes
+    const prev = {
+      lev: this.settings.leverage,
+      pos: this.settings.positionPct,
+      goal: this.settings.goalMultiple,
+      mr: this.settings.maxRiskPct,
+      tr: this.settings.maxTotalRiskPct,
+      ds: this.settings.dailyLossStopPct,
+    }
     // modal change (all modes share one startingEquity): a SIM modal change
     // wipes SIM history so equity starts exactly at the new modal — clean monitoring
     const newEquity = Math.max(10, Math.round(payload.startingEquity || 0) * 100) / 100
@@ -1219,13 +1230,26 @@ export class Engine {
       this.refreshCrewFromStats()
       await this.reloadEquityPoints().catch(() => {})
     }
-    // modal awal berubah + mode SIM → reset otomatis: riwayat bersih dari modal baru
-    if (equityChanged && mode === 'sim') {
+    // modal awal berubah / paket preset diterapkan + mode SIM → reset otomatis:
+    // riwayat bersih supaya hasil pantauan murni dari konfigurasi yang baru
+    const presetApplied = payload.presetReset === true
+    const configChanged =
+      equityChanged ||
+      prev.lev !== this.settings.leverage ||
+      Math.abs(prev.pos - this.settings.positionPct) > 1e-9 ||
+      Math.abs(prev.goal - this.settings.goalMultiple) > 1e-9 ||
+      Math.abs(prev.mr - this.settings.maxRiskPct) > 1e-9 ||
+      Math.abs(prev.tr - this.settings.maxTotalRiskPct) > 1e-9 ||
+      Math.abs(prev.ds - this.settings.dailyLossStopPct) > 1e-9
+    if (mode === 'sim' && (equityChanged || (presetApplied && configChanged))) {
       await this.resetSimInternal()
+      const byPreset = presetApplied && !equityChanged
       this.notify({
         kind: 'info',
-        title: 'SIM dimulai dari modal baru',
-        body: `Modal awal diganti ke $${newEquity.toFixed(0)} — riwayat SIM di-reset, equity mulai pas $${newEquity.toFixed(0)}.`,
+        title: byPreset ? 'Paket preset diterapkan — SIM mulai segar' : 'SIM dimulai dari modal baru',
+        body: byPreset
+          ? `Konfigurasi paket aktif — riwayat SIM di-reset, equity mulai $${newEquity.toFixed(0)}. Hasil pantauan sekarang murni dari paket ini.`
+          : `Modal awal diganti ke $${newEquity.toFixed(0)} — riwayat SIM di-reset, equity mulai pas $${newEquity.toFixed(0)}.`,
       })
     }
 

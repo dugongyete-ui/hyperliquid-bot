@@ -19,6 +19,7 @@ import {
   Gauge,
   Layers,
   MoveHorizontal,
+  Package,
   ShieldAlert,
   Target,
   TrendingDown,
@@ -71,15 +72,112 @@ const PROFILES: { key: RiskProfile; name: string; desc: string }[] = [
   { key: 'turbo', name: 'Turbo', desc: 'Scalp cepat · cut loss disiplin' },
 ]
 
-/** preset modal — dari yang paling kecil yang masih layak sampai standar */
-const CAPITAL_PRESETS: { v: number; label: string }[] = [
-  { v: 25, label: 'Mini' },
-  { v: 50, label: 'Kecil' },
-  { v: 100, label: 'Starter' },
-  { v: 250, label: 'Wajar' },
-  { v: 500, label: 'Serius' },
-  { v: 1000, label: 'Standar' },
+/** paket preset lengkap — satu klik mengisi modal, ukuran & risiko, target profit
+ *  otomatis, arah Long+Short, dan Risk Desk sekaligus. Pemula = yang paling kecil. */
+interface PackageValues {
+  startingEquity: number
+  goalMultiple: number
+  leverage: number
+  positionPct: number
+  riskProfile: RiskProfile
+  autoExit: boolean
+  allowShort: boolean
+  maxRiskPct: number
+  maxTotalRiskPct: number
+  dailyLossStopPct: number
+}
+const PACKAGES: {
+  key: string
+  name: string
+  badge?: string
+  desc: string
+  values: PackageValues
+}[] = [
+  {
+    key: 'pemula',
+    name: 'Pemula',
+    badge: 'UNTUK PEMULA',
+    desc: 'Modal $25 · proteksi ketat · pas untuk pantau cara kerja crew',
+    values: {
+      startingEquity: 25,
+      goalMultiple: 2,
+      leverage: 5,
+      positionPct: 30,
+      riskProfile: 'balanced',
+      autoExit: true,
+      allowShort: true,
+      maxRiskPct: 1.5,
+      maxTotalRiskPct: 3,
+      dailyLossStopPct: 5,
+    },
+  },
+  {
+    key: 'naikKelas',
+    name: 'Naik Kelas',
+    desc: 'Modal $100 · ruang lebih longgar setelah mulai nyaman',
+    values: {
+      startingEquity: 100,
+      goalMultiple: 2,
+      leverage: 5,
+      positionPct: 30,
+      riskProfile: 'balanced',
+      autoExit: true,
+      allowShort: true,
+      maxRiskPct: 1.5,
+      maxTotalRiskPct: 4,
+      dailyLossStopPct: 6,
+    },
+  },
+  {
+    key: 'berani',
+    name: 'Berani',
+    desc: 'Modal $250 · gaya Turbo scalp cepat · sudah paham risiko',
+    values: {
+      startingEquity: 250,
+      goalMultiple: 3,
+      leverage: 8,
+      positionPct: 35,
+      riskProfile: 'turbo',
+      autoExit: true,
+      allowShort: true,
+      maxRiskPct: 2,
+      maxTotalRiskPct: 5,
+      dailyLossStopPct: 8,
+    },
+  },
 ]
+
+/** match a package against plain numbers (works for saved state OR live form) */
+function matchPkg(v: {
+  eq: number
+  goal: number
+  lev: number
+  pos: number
+  profile: RiskProfile
+  auto: boolean
+  short: boolean
+  rp: number
+  tr: number
+  ds: number
+}): string | null {
+  for (const p of PACKAGES) {
+    const w = p.values
+    if (
+      v.eq === w.startingEquity &&
+      v.goal === w.goalMultiple &&
+      v.lev === w.leverage &&
+      v.pos === w.positionPct &&
+      v.profile === w.riskProfile &&
+      v.auto === w.autoExit &&
+      v.short === w.allowShort &&
+      Math.abs(v.rp - w.maxRiskPct) < 0.001 &&
+      Math.abs(v.tr - w.maxTotalRiskPct) < 0.001 &&
+      Math.abs(v.ds - w.dailyLossStopPct) < 0.001
+    )
+      return p.key
+  }
+  return null
+}
 
 export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsModalProps) {
   const [mode, setMode] = useState<TradeMode>('sim')
@@ -98,6 +196,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
   const [dailyLossStopPct, setDailyLossStopPct] = useState(6)
   const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
+  const [activePkg, setActivePkg] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
@@ -125,9 +224,70 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
       setWalletAddress(state.walletAddress ?? '')
       setPrivateKey('')
       setError(null)
+      // highlight the package the saved settings already match (if any)
+      setActivePkg(
+        matchPkg({
+          eq: state.startingEquity,
+          goal: state.goal.target,
+          lev: state.leverage ?? 5,
+          pos: Math.round((state.positionPct ?? 0.3) * 100),
+          profile: state.riskProfile ?? 'balanced',
+          auto: state.autoExit ?? true,
+          short: state.allowShort ?? true,
+          rp: state.risk?.perTradePct ?? 1,
+          tr: state.risk?.totalPct ?? 4,
+          ds: state.risk?.dailyStopPct ?? 6,
+        })
+      )
     }
     prevOpen.current = open
   }, [open, state])
+
+  // keep the highlighted package honest: any manual tweak that no longer
+  // matches a package clears it, an applied package re-highlights itself
+  useEffect(() => {
+    if (!open) return
+    setActivePkg(
+      matchPkg({
+        eq: Number(startingEquity) || 0,
+        goal: Number(goalMultiple) || 0,
+        lev: leverage,
+        pos: positionPct,
+        profile: riskProfile,
+        auto: autoExit,
+        short: allowShort,
+        rp: maxRiskPct,
+        tr: maxTotalRiskPct,
+        ds: dailyLossStopPct,
+      })
+    )
+  }, [
+    open,
+    startingEquity,
+    goalMultiple,
+    leverage,
+    positionPct,
+    riskProfile,
+    autoExit,
+    allowShort,
+    maxRiskPct,
+    maxTotalRiskPct,
+    dailyLossStopPct,
+  ])
+
+  function applyPkg(p: (typeof PACKAGES)[number]) {
+    const v = p.values
+    setStartingEquity(String(v.startingEquity))
+    setGoalMultiple(String(v.goalMultiple))
+    setLeverage(v.leverage)
+    setPositionPct(v.positionPct)
+    setRiskProfile(v.riskProfile)
+    setAutoExit(v.autoExit)
+    setAllowShort(v.allowShort)
+    setMaxRiskPct(v.maxRiskPct)
+    setMaxTotalRiskPct(v.maxTotalRiskPct)
+    setDailyLossStopPct(v.dailyLossStopPct)
+  }
 
   const isLive = mode !== 'sim'
   // estimates follow what the form will save: SIM → the modal field, live → wallet equity
@@ -162,6 +322,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
           dailyLossStopPct,
           privateKey: privateKey.trim() || undefined,
           walletAddress: walletAddress.trim() || undefined,
+          presetReset: activePkg != null,
         }),
       })
       const data = await res.json()
@@ -234,6 +395,102 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
               </button>
             )
           })}
+        </div>
+
+        {/* ---------- paket preset: sekali klik, semua terisi ---------- */}
+        <div className="mt-4 rounded-2xl border-2 border-[#ECECEE] p-4">
+          <p className="flex items-center gap-1.5 text-[13px] font-black tracking-tight">
+            <Package size={15} strokeWidth={2.4} aria-hidden /> Paket preset — sekali klik
+          </p>
+          <p className="mt-1 text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+            Ukuran &amp; risiko, target profit{' '}
+            <span className="font-extrabold text-[#17171C]">otomatis</span>, arah{' '}
+            <span className="font-extrabold text-[#17171C]">Long&nbsp;+&nbsp;Short</span>, dan Risk
+            Desk — dibungkus jadi satu paket. Pilih yang sesuai, lalu tekan Simpan.
+          </p>
+
+          <div className="mt-3 space-y-2">
+            {PACKAGES.map((p) => {
+              const active = activePkg === p.key
+              const v = p.values
+              const profileName = PROFILES.find((x) => x.key === v.riskProfile)?.name ?? 'Balanced'
+              return (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => applyPkg(p)}
+                  className={`w-full rounded-2xl border-2 p-3.5 text-left transition-all ${
+                    active
+                      ? 'border-[#17171C] bg-[#FAFAFB]'
+                      : 'border-[#ECECEE] bg-white hover:border-[#D6D6DB]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-[14px] font-black tracking-tight">{p.name}</span>
+                    {p.badge && (
+                      <span className="rounded-md bg-[#DCFCE7] px-1.5 py-0.5 text-[10px] font-black text-[#15803D]">
+                        {p.badge}
+                      </span>
+                    )}
+                    <span className="ml-auto text-[14px] font-black tabular-nums">
+                      ${v.startingEquity}
+                    </span>
+                    {active && (
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#22C55E]">
+                        <svg viewBox="0 0 20 20" className="h-3 w-3" fill="white">
+                          <path d="M8 13.4 4.6 10l-1.2 1.2L8 15.8l8.6-8.6L15.4 6z" />
+                        </svg>
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-[11.5px] font-semibold text-[#8E8E93]">{p.desc}</p>
+
+                  <div className="mt-2.5 space-y-1 rounded-xl bg-[#F8F8FA] px-2.5 py-2">
+                    <p className="flex items-baseline justify-between gap-2 text-[10.5px] font-bold">
+                      <span className="text-[#8E8E93]">Ukuran &amp; risiko</span>
+                      <span className="text-right text-[#17171C]">
+                        {v.leverage}× · posisi {v.positionPct}% · {profileName}
+                      </span>
+                    </p>
+                    <p className="flex items-baseline justify-between gap-2 text-[10.5px] font-bold">
+                      <span className="text-[#8E8E93]">Target profit</span>
+                      <span className="text-right text-[#15803D]">
+                        {v.autoExit ? 'otomatis (adaptif)' : 'manual'}
+                      </span>
+                    </p>
+                    <p className="flex items-baseline justify-between gap-2 text-[10.5px] font-bold">
+                      <span className="text-[#8E8E93]">Arah trading</span>
+                      <span className="text-right text-[#15803D]">
+                        {v.allowShort ? 'Long + Short aktif' : 'Long saja'}
+                      </span>
+                    </p>
+                    <p className="flex items-baseline justify-between gap-2 text-[10.5px] font-bold">
+                      <span className="text-[#8E8E93]">Risk Desk</span>
+                      <span className="text-right text-[#17171C]">
+                        {v.maxRiskPct}%/trade · total {v.maxTotalRiskPct}% · stop −
+                        {v.dailyLossStopPct}%/hari
+                      </span>
+                    </p>
+                    <p className="flex items-baseline justify-between gap-2 text-[10.5px] font-bold">
+                      <span className="text-[#8E8E93]">Target akhir</span>
+                      <span className="text-right text-[#17171C]">
+                        {v.goalMultiple}× modal (≈ ${Math.round(v.startingEquity * v.goalMultiple)})
+                      </span>
+                    </p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {activePkg && (
+            <p className="mt-2.5 rounded-xl bg-[#F0FDF4] px-3 py-2 text-[11.5px] font-extrabold text-[#15803D]">
+              Paket «{PACKAGES.find((p) => p.key === activePkg)?.name}» terisi — periksa
+              ringkasnya, lalu tekan Simpan &amp; Terapkan. Simpan dengan mode SIM aktif =
+              riwayat SIM diulang dari awal, hasil pantauan murni dari paket ini. Ubah manual
+              mana pun akan lepas dari paket.
+            </p>
+          )}
         </div>
 
         {/* ---------- trading engine settings ---------- */}
@@ -658,37 +915,10 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
             <Wallet size={15} strokeWidth={2.4} aria-hidden /> Modal awal
           </p>
           <p className="mt-1 text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
-            Berlaku di <span className="font-extrabold text-[#17171C]">semua mode</span> — SIM ·
-            TESTNET · MAINNET. Preset kecil enak untuk uji coba dulu di SIM.
+            Diatur otomatis oleh paket preset di atas — isi sendiri di sini kalau mau nominal
+            lain. Berlaku di <span className="font-extrabold text-[#17171C]">semua mode</span> —
+            SIM · TESTNET · MAINNET.
           </p>
-
-          {/* preset chips */}
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {CAPITAL_PRESETS.map((p) => {
-              const active = Number(startingEquity) === p.v
-              return (
-                <button
-                  key={p.v}
-                  type="button"
-                  onClick={() => setStartingEquity(String(p.v))}
-                  className={`rounded-xl border-2 px-2 py-2 text-center transition-all ${
-                    active
-                      ? 'border-[#17171C] bg-[#17171C] text-white'
-                      : 'border-[#ECECEE] bg-white text-[#17171C] hover:border-[#D6D6DB]'
-                  }`}
-                >
-                  <span className="block text-[13.5px] font-black tabular-nums">${p.v}</span>
-                  <span
-                    className={`block text-[10px] font-bold ${
-                      active ? 'text-white/70' : 'text-[#8E8E93]'
-                    }`}
-                  >
-                    {p.label}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
 
           {/* nominal input + goal */}
           <div className="mt-3 grid grid-cols-2 gap-3">

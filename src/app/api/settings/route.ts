@@ -20,6 +20,7 @@ interface Body {
   dailyLossStopPct?: number
   privateKey?: string
   walletAddress?: string
+  presetReset?: boolean
 }
 
 export async function POST(req: Request) {
@@ -43,6 +44,7 @@ export async function POST(req: Request) {
       dailyLossStopPct: body.dailyLossStopPct != null ? Number(body.dailyLossStopPct) : undefined,
       privateKey: body.privateKey,
       walletAddress: body.walletAddress,
+      presetReset: Boolean(body.presetReset),
     })
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 })
