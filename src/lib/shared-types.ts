@@ -19,6 +19,7 @@ export interface CrewBotState {
   score: number | null
   holding: {
     coin: string
+    side: 'long' | 'short'
     pnlPct: number
     sizeUsd: number
     since: number
@@ -113,6 +114,8 @@ export interface EngineSnapshot {
   autoExit: boolean
   tpPct: number
   slPct: number
+  /** shorts allowed (profit when a coin falls) */
+  allowShort: boolean
   risk: RiskState
   goal: { target: number; done: boolean }
   regimeSamples: RegimeSample[]
@@ -139,6 +142,7 @@ export interface SettingsPayload {
   autoExit?: boolean
   tpPct?: number
   slPct?: number
+  allowShort?: boolean
   maxRiskPct?: number
   maxTotalRiskPct?: number
   dailyLossStopPct?: number

@@ -23,6 +23,9 @@ model Settings {
   autoExit        Boolean  @default(true)
   tpPct           Float    @default(1.2) // manual take-profit % (dipakai saat autoExit = false)
   slPct           Float    @default(0.6) // manual stop-loss %   (dipakai saat autoExit = false)
+  // allowShort: bot boleh membuka posisi SHORT (untung saat market turun).
+  // false = long-only seperti sebelumnya.
+  allowShort      Boolean  @default(true)
   // HyperGrok desk risk limits — user may only TIGHTEN, never exceed the hard ceilings
   maxRiskPct      Float    @default(1.0)  // max % of equity at risk per trade (ceiling 2)
   maxTotalRiskPct Float    @default(4.0)  // max % of equity at risk across all open positions (ceiling 6)

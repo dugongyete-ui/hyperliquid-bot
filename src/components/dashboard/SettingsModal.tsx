@@ -21,6 +21,7 @@ import {
   MoveHorizontal,
   ShieldAlert,
   Target,
+  TrendingDown,
   TrendingUp,
   Zap,
 } from 'lucide-react'
@@ -80,6 +81,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
   const [autoExit, setAutoExit] = useState(true)
   const [tpPct, setTpPct] = useState('1.2')
   const [slPct, setSlPct] = useState('0.6')
+  const [allowShort, setAllowShort] = useState(true)
   const [maxRiskPct, setMaxRiskPct] = useState(1)
   const [maxTotalRiskPct, setMaxTotalRiskPct] = useState(4)
   const [dailyLossStopPct, setDailyLossStopPct] = useState(6)
@@ -105,6 +107,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
       setAutoExit(state.autoExit ?? true)
       setTpPct(String(state.tpPct ?? 1.2))
       setSlPct(String(state.slPct ?? 0.6))
+      setAllowShort(state.allowShort ?? true)
       setMaxRiskPct(state.risk?.perTradePct ?? 1)
       setMaxTotalRiskPct(state.risk?.totalPct ?? 4)
       setDailyLossStopPct(state.risk?.dailyStopPct ?? 6)
@@ -139,6 +142,7 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
           autoExit,
           tpPct: Number(tpPct) || 1.2,
           slPct: Number(slPct) || 0.6,
+          allowShort,
           maxRiskPct,
           maxTotalRiskPct,
           dailyLossStopPct,
@@ -418,6 +422,48 @@ export function SettingsModal({ open, onOpenChange, state, onSaved }: SettingsMo
               </p>
             </>
           )}
+        </div>
+
+        {/* ---------- direction: long & short ---------- */}
+        <div className="mt-4 rounded-2xl border-2 border-[#ECECEE] p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-[13px] font-black tracking-tight">
+              <TrendingDown size={15} strokeWidth={2.4} aria-hidden /> Arah trading — Long &amp; Short
+            </p>
+            <Switch
+              checked={allowShort}
+              onCheckedChange={setAllowShort}
+              aria-label="Izinkan posisi short"
+            />
+          </div>
+          <p className="mt-1.5 text-[11.5px] font-semibold leading-snug text-[#8E8E93]">
+            {allowShort ? (
+              <>
+                <span className="font-extrabold text-[#17171C]">LONG + SHORT</span> — saat market
+                turun, crew boleh <span className="font-extrabold">short</span> (untung justru saat
+                harga jatuh). Hanya jika tren 5m benar-benar turun + tekanan jual kuat — otak entry
+                tetap jadi hakim.
+              </>
+            ) : (
+              <>
+                <span className="font-extrabold text-[#17171C]">LONG ONLY</span> — bot hanya beli,
+                lalu jual untuk ambil profit / potong rugi. Market turun = crew menunggu di pinggir.
+              </>
+            )}
+          </p>
+          <div className="mt-2.5 flex items-center gap-2">
+            <span className="flex items-center gap-1 rounded-md bg-[#DCFCE7] px-2 py-1 text-[10.5px] font-black text-[#15803D]">
+              <TrendingUp size={11} strokeWidth={2.6} aria-hidden /> LONG: naik = untung
+            </span>
+            <span
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10.5px] font-black ${
+                allowShort ? 'bg-[#FEE2E2] text-[#B91C1C]' : 'bg-[#ECECEE] text-[#B4B4B9]'
+              }`}
+            >
+              <TrendingDown size={11} strokeWidth={2.6} aria-hidden /> SHORT: turun = untung
+              {!allowShort && ' · mati'}
+            </span>
+          </div>
         </div>
 
         {/* ---------- desk risk limits (HyperGrok) ---------- */}

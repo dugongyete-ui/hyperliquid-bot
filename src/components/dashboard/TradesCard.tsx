@@ -59,11 +59,18 @@ export function TradesCard({ trades, wins, losses, onPickCoin }: TradesCardProps
                   badgeFace={FACE_BY_KEY[t.botKey] ?? 'happy'}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[16px] font-extrabold leading-tight">${t.coin}</p>
+                  <p className="flex items-center gap-1.5 truncate text-[16px] font-extrabold leading-tight">
+                    ${t.coin}
+                    {t.side === 'short' && (
+                      <span className="rounded-md bg-[#FEE2E2] px-1.5 py-0.5 text-[9.5px] font-black tracking-wide text-[#B91C1C]">
+                        SHORT
+                      </span>
+                    )}
+                  </p>
                   <p className="truncate text-[12.5px] font-semibold text-[#8E8E93]">
                     {t.status === 'open' ? (
                       <>
-                        {t.botName} beli · {fmtSizeUsd(t.sizeUsd)} · {t.reason}
+                        {t.botName} {t.side === 'short' ? 'short' : 'beli'} · {fmtSizeUsd(t.sizeUsd)} · {t.reason}
                       </>
                     ) : (
                       <>

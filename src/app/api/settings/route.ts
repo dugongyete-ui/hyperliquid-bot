@@ -14,6 +14,7 @@ interface Body {
   autoExit?: boolean
   tpPct?: number
   slPct?: number
+  allowShort?: boolean
   maxRiskPct?: number
   maxTotalRiskPct?: number
   dailyLossStopPct?: number
@@ -36,6 +37,7 @@ export async function POST(req: Request) {
       autoExit: body.autoExit != null ? Boolean(body.autoExit) : undefined,
       tpPct: body.tpPct != null ? Number(body.tpPct) : undefined,
       slPct: body.slPct != null ? Number(body.slPct) : undefined,
+      allowShort: body.allowShort != null ? Boolean(body.allowShort) : undefined,
       maxRiskPct: body.maxRiskPct != null ? Number(body.maxRiskPct) : undefined,
       maxTotalRiskPct: body.maxTotalRiskPct != null ? Number(body.maxTotalRiskPct) : undefined,
       dailyLossStopPct: body.dailyLossStopPct != null ? Number(body.dailyLossStopPct) : undefined,

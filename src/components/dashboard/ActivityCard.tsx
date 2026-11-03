@@ -1,6 +1,7 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
+import { TrendingDown } from 'lucide-react'
 import type { TradeRow } from '@/lib/shared-types'
 import { fmtSmartUsd } from '@/lib/format'
 import { CoinIcon } from './CoinIcon'
@@ -18,7 +19,7 @@ interface Event {
   ts: number
   botName: string
   botColor: string
-  verb: 'beli' | 'jual'
+  verb: 'beli' | 'jual' | 'short' | 'cover'
   coin: string
   detail: string
   pnl: number | null
@@ -34,7 +35,8 @@ function toEvents(trades: TradeRow[]): Event[] {
         ts: t.openedAt,
         botName: t.botName,
         botColor: t.botColor,
-        verb: 'beli',
+        // opening a short IS a sell — show it as its own verb so the feed is honest
+        verb: t.side === 'short' ? 'short' : 'beli',
         coin: t.coin,
         detail: t.reason,
         pnl: null,
@@ -47,7 +49,8 @@ function toEvents(trades: TradeRow[]): Event[] {
         ts: t.closedAt,
         botName: t.botName,
         botColor: t.botColor,
-        verb: 'jual',
+        // closing a short = buying back; closing a long = selling
+        verb: t.side === 'short' ? 'cover' : 'jual',
         coin: t.coin,
         detail: t.exitReason ?? '',
         pnl: t.pnl,
@@ -104,7 +107,18 @@ export function ActivityCard({ trades, wins, losses, onPickCoin }: ActivityCardP
                 <span className="font-extrabold" style={{ color: ev.botColor }}>
                   {ev.botName}
                 </span>{' '}
-                <span className={`font-extrabold ${ev.verb === 'beli' ? 'text-[#2E90FA]' : 'text-[#17171C]'}`}>
+                <span
+                  className={`inline-flex items-center gap-0.5 font-extrabold ${
+                    ev.verb === 'beli'
+                      ? 'text-[#2E90FA]'
+                      : ev.verb === 'short'
+                        ? 'text-[#EF4444]'
+                        : ev.verb === 'cover'
+                          ? 'text-[#F97316]'
+                          : 'text-[#17171C]'
+                  }`}
+                >
+                  {ev.verb === 'short' && <TrendingDown size={12} strokeWidth={2.8} aria-hidden />}
                   {ev.verb}
                 </span>{' '}
                 <button
@@ -113,16 +127,16 @@ export function ActivityCard({ trades, wins, losses, onPickCoin }: ActivityCardP
                 >
                   <CoinIcon coin={ev.coin} size={15} />${ev.coin}
                 </button>
-                {ev.verb === 'beli' && (
+                {(ev.verb === 'beli' || ev.verb === 'short') && (
                   <span className="text-[#8E8E93]"> · {ev.detail || 'sinyal muncul'}</span>
                 )}
-                {ev.verb === 'jual' && ev.pnl != null && (
+                {(ev.verb === 'jual' || ev.verb === 'cover') && ev.pnl != null && (
                   <span className={ev.pnl >= 0 ? 'font-extrabold text-[#22C55E]' : 'font-extrabold text-[#EF4444]'}>
                     {' '}
                     {fmtSmartUsd(ev.pnl)} ({(ev.pnlPct ?? 0).toFixed(1)}%)
                   </span>
                 )}
-                {ev.verb === 'jual' && ev.detail && (
+                {(ev.verb === 'jual' || ev.verb === 'cover') && ev.detail && (
                   <span className="text-[#8E8E93]"> · {ev.detail}</span>
                 )}
               </p>

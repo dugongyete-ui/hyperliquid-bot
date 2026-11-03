@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Brain } from 'lucide-react'
+import { Brain, TrendingDown } from 'lucide-react'
 import type { CrewBotState } from '@/lib/shared-types'
 import { fmtPct, fmtSmartUsd } from '@/lib/format'
 import type { FaceVariant } from './BotAvatar'
@@ -158,10 +158,15 @@ function AgentCard({
               e.stopPropagation()
               onPickCoin(holding.coin)
             }}
-            className="flex max-w-full items-center gap-1 overflow-hidden rounded-full bg-[#F2F3F5] py-[3px] pr-2 pl-[4px] transition hover:bg-black/[0.06] active:scale-95"
+            className={`flex max-w-full items-center gap-1 overflow-hidden rounded-full py-[3px] pl-[4px] pr-2 transition active:scale-95 ${
+              holding.side === 'short' ? 'bg-[#FEE2E2] hover:bg-[#FECACA]' : 'bg-[#F2F3F5] hover:bg-black/[0.06]'
+            }`}
             aria-label={`Buka chart ${holding.coin}`}
           >
             <CoinIcon coin={holding.coin} size={14} className="shrink-0" />
+            {holding.side === 'short' && (
+              <TrendingDown size={11} strokeWidth={2.8} className="shrink-0 text-[#B91C1C]" aria-hidden />
+            )}
             <span className="truncate text-[10.5px] font-extrabold tracking-tight">
               ${holding.coin}
             </span>

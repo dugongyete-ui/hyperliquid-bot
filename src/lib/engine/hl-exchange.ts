@@ -55,12 +55,13 @@ export async function liveMarketOpen(
   privateKey: string,
   walletAddress: string | null | undefined,
   coin: string,
-  qty: number
+  qty: number,
+  isBuy: boolean = true // false = market SELL → opens/flips into a SHORT position
 ): Promise<OpenLiveResult> {
   const { sdk } = getLiveSdk(network, privateKey, walletAddress)
   try {
     await sdk.ensureInitialized()
-    const res = await sdk.exchange.marketOpen(coin, true, qty, undefined, 0.03)
+    const res = await sdk.exchange.marketOpen(coin, isBuy, qty, undefined, 0.03)
     const statuses: OrderStatusWire[] =
       (res as { response?: { data?: { statuses?: OrderStatusWire[] } } })?.response?.data?.statuses ?? []
     const first = statuses[0]

@@ -5,7 +5,7 @@
 import { db } from '@/lib/db'
 import { CREW, crewDef, type CrewDef } from './crew'
 import { MarketData } from './market'
-import { evaluateSignal, type Signal } from './strategies'
+import { evaluateSignal, type Signal, type TradeSide } from './strategies'
 import { rejectReason, verdict, kindOf } from './brain'
 import {
   CEILINGS,
@@ -77,6 +77,7 @@ interface OpenPosition {
   tradeId: string
   botKey: BotKey
   coin: string
+  side: TradeSide // long = buy first, short = sell first (profits when price falls)
   qty: number
   sizeUsd: number // notional (margin × leverage) — matches what the exchange sees
   entryPx: number
@@ -125,6 +126,8 @@ export interface EngineSettings {
   /** manual fixed targets, used when autoExit = false */
   tpPct: number
   slPct: number
+  /** allow SHORT entries (profit when a coin falls) — off = long-only */
+  allowShort: boolean
   maxRiskPct: number
   maxTotalRiskPct: number
   dailyLossStopPct: number
@@ -155,6 +158,7 @@ export class Engine {
     autoExit: true,
     tpPct: 1.2,
     slPct: 0.6,
+    allowShort: true,
     maxRiskPct: 1,
     maxTotalRiskPct: 4,
     dailyLossStopPct: 6,
@@ -210,6 +214,7 @@ export class Engine {
       autoExit: s.autoExit ?? true,
       tpPct: s.tpPct ?? 1.2,
       slPct: s.slPct ?? 0.6,
+      allowShort: s.allowShort ?? true,
       maxRiskPct: s.maxRiskPct ?? 1,
       maxTotalRiskPct: s.maxTotalRiskPct ?? 4,
       dailyLossStopPct: s.dailyLossStopPct ?? 6,
@@ -276,6 +281,7 @@ export class Engine {
         tradeId: t.id,
         botKey: t.botKey as BotKey,
         coin: t.coin,
+        side: (t.side === 'short' ? 'short' : 'long') as TradeSide,
         qty: t.qty,
         sizeUsd: t.sizeUsd,
         entryPx: t.entryPx,
@@ -313,6 +319,7 @@ export class Engine {
       mode: string
       botKey: string
       coin: string
+      side: string
       sizeUsd: number
       entryPx: number
       exitPx: number | null
@@ -333,7 +340,7 @@ export class Engine {
       botName: def.name,
       botColor: def.color,
       coin: t.coin,
-      side: 'long',
+      side: t.side === 'short' ? 'short' : 'long',
       sizeUsd: t.sizeUsd,
       entryPx: t.entryPx,
       exitPx: t.exitPx,
@@ -449,15 +456,16 @@ export class Engine {
   private unrealizedFor(pos: OpenPosition): { pnl: number; pnlPct: number } {
     if (pos.mode === 'sim') {
       const mark = this.market.mid(pos.coin) ?? pos.entryPx
-      // paper fills happen at the live mid with no fees — keeps the demo honest about prices
-      const pnl = pos.qty * (mark - pos.entryPx)
+      // paper fills happen at the live mid with no fees — keeps the demo honest
+      // long: profit when mark > entry · short: profit when mark < entry
+      const pnl = pos.qty * (pos.side === 'long' ? mark - pos.entryPx : pos.entryPx - mark)
       return { pnl, pnlPct: pos.sizeUsd > 0 ? (pnl / pos.sizeUsd) * 100 : 0 }
     }
     // live: mark-to-market from the last synced qty/entry whenever we have a fresh mid,
     // otherwise fall back to the exchange's authoritative unrealized figure
     const mid = this.market.mid(pos.coin)
     if (mid != null && pos.qty > 0) {
-      const pnl = pos.qty * (mid - pos.entryPx)
+      const pnl = pos.qty * (pos.side === 'long' ? mid - pos.entryPx : pos.entryPx - mid)
       return { pnl, pnlPct: pos.sizeUsd > 0 ? (pnl / pos.sizeUsd) * 100 : 0 }
     }
     const pnl = pos.lastPnlUsd || (pos.lastPnlPct / 100) * pos.sizeUsd
@@ -565,26 +573,31 @@ export class Engine {
         .catch(() => {})
     }
 
-    // adopt exchange positions not tracked locally
+    // adopt exchange positions not tracked locally (longs AND shorts)
     for (const p of st.positions) {
-      if (p.szi <= 0) continue
+      if (p.szi === 0) continue
+      const side: TradeSide = p.szi > 0 ? 'long' : 'short'
       const tracked = this.positions.some(
-        (pos) => pos.mode === this.settings.mode && pos.coin === p.coin
+        (pos) =>
+          pos.mode === this.settings.mode &&
+          pos.coin === p.coin &&
+          pos.side === side
       )
       if (tracked) continue
       const idleBot =
         [...this.bots.values()].find(
           (b) => !this.positions.some((pos) => pos.mode === this.settings.mode && pos.botKey === b.def.key)
         ) ?? this.bots.get('whaleTail')!
-      const sizeUsd = p.positionValue || p.szi * p.entryPx
+      const sizeUsd = p.positionValue || Math.abs(p.szi) * p.entryPx
       const row = await db.trade
         .create({
           data: {
             mode: this.settings.mode,
             botKey: idleBot.def.key,
             coin: p.coin,
+            side,
             sizeUsd,
-            qty: p.szi,
+            qty: Math.abs(p.szi),
             entryPx: p.entryPx,
             status: 'open',
             reason: 'adopsi posisi yang sudah ada',
@@ -596,7 +609,8 @@ export class Engine {
         tradeId: row.id,
         botKey: idleBot.def.key,
         coin: p.coin,
-        qty: p.szi,
+        side,
+        qty: Math.abs(p.szi),
         sizeUsd,
         entryPx: p.entryPx,
         peakPct: Math.max(0, p.unrealizedPnl / (p.positionValue || 1)) * 100,
@@ -612,20 +626,22 @@ export class Engine {
       const adopted = this.positions[this.positions.length - 1]
       adopted.riskUsd = stressedRiskOfPosition(sizeUsd, p.entryPx, adopted.plan.slPx)
       this.risk.reserve(row.id, { riskUsd: adopted.riskUsd, mode: this.settings.mode })
-      idleBot.state.thought = `adopsi $${p.coin} dari exchange`
+      idleBot.state.thought = `adopsi ${side === 'short' ? 'short' : ''} $${p.coin} dari exchange`.trim()
       idleBot.state.thoughtAt = Date.now()
     }
 
-    // update tracked positions from exchange data
+    // update tracked positions from exchange data (match the position side too)
     for (const pos of [...this.positions]) {
       if (pos.mode !== this.settings.mode) continue
-      const ex = st.positions.find((p) => p.coin === pos.coin && p.szi > 0)
+      const ex = st.positions.find((p) =>
+        pos.side === 'long' ? p.coin === pos.coin && p.szi > 0 : p.coin === pos.coin && p.szi < 0
+      )
       if (ex) {
         pos.lastPnlPct = ex.positionValue > 0 ? (ex.unrealizedPnl / ex.positionValue) * 100 : 0
         pos.lastPnlUsd = ex.unrealizedPnl
         pos.peakPct = Math.max(pos.peakPct, pos.lastPnlPct)
         if (ex.entryPx > 0) pos.entryPx = ex.entryPx
-        if (ex.szi > 0) pos.qty = ex.szi
+        if (Math.abs(ex.szi) > 0) pos.qty = Math.abs(ex.szi)
       } else if (Date.now() - pos.openedAt > 20_000) {
         // position vanished on the exchange (closed externally)
         await this.finalizeClose(pos, 'tertutup di exchange', ex?.entryPx ?? null, this.unrealizedFor(pos).pnl)
@@ -814,7 +830,7 @@ export class Engine {
       botName: def.name,
       botColor: def.color,
       coin: pos.coin,
-      side: 'long',
+      side: pos.side,
       sizeUsd: pos.sizeUsd,
       entryPx: pos.entryPx,
       exitPx,
@@ -860,6 +876,8 @@ export class Engine {
       const bored = idleSec > 90
       const sig = evaluateSignal(rt.def, this.market, bored)
       if (!sig || heldCoins.has(sig.coin)) continue
+      // user gate: short entries off → long-only mode
+      if (sig.side === 'short' && !this.settings.allowShort) continue
 
       // loss memory — a coin that just stopped us out is off-limits for a while
       if (now < (this.coinBlock.get(sig.coin) ?? 0)) continue
@@ -868,7 +886,7 @@ export class Engine {
       const f = this.form.get(rt.def.key)
       // losing streak → pickier (needs a higher score); 3+ wins → a little bolder
       const boost = f ? (f.consecLoss > 0 ? Math.min(15, f.consecLoss * 5) : f.consecWin >= 3 ? -5 : 0) : 0
-      const v = verdict(sig.coin, this.market, kindOf(rt.def.key), { bored, boost })
+      const v = verdict(sig.coin, this.market, kindOf(rt.def.key), sig.side, { bored, boost })
       this.smart.scans++
       if (!v.ok) {
         this.smart.vetoes++
@@ -966,12 +984,14 @@ export class Engine {
         rt.cooldownUntil = Date.now() + 60_000
         return false
       }
+      // short = market SELL order on Hyperliquid (open the position on the other side)
       const res = await liveMarketOpen(
         network,
         this.settings.privateKey,
         this.settings.walletAddress,
         sig.coin,
-        qty
+        qty,
+        sig.side === 'long'
       )
       if (!res.ok) {
         rt.state.thought = `order ditolak: ${res.error?.slice(0, 36) ?? 'error exchange'}`
@@ -983,13 +1003,15 @@ export class Engine {
       sizeUsd = qty * entryPx
     }
 
-    const reason = `${leverage}× · ${sig.reason}`
+    const verb = sig.side === 'short' ? 'short' : 'beli'
+    const reason = `${sig.side === 'short' ? 'SHORT' : 'LONG'} ${leverage}× · ${sig.reason}`
     const row = await db.trade
       .create({
         data: {
           mode: this.settings.mode,
           botKey: rt.def.key,
           coin: sig.coin,
+          side: sig.side,
           sizeUsd,
           qty,
           entryPx,
@@ -1011,6 +1033,7 @@ export class Engine {
       tradeId: row.id,
       botKey: rt.def.key,
       coin: sig.coin,
+      side: sig.side,
       qty,
       sizeUsd,
       entryPx,
@@ -1029,7 +1052,7 @@ export class Engine {
     const exitTag = plan.auto
       ? `TP ${plan.tpPx.toFixed(2)}% · ${REGIME_ID[plan.regime]}`
       : `TP ${plan.tpPx.toFixed(2)}%/SL ${plan.slPx.toFixed(2)}%`
-    rt.state.thought = `beli $${sig.coin} · ${leverage}× · ${sig.reason} · skor ${v.score} · ${exitTag}`
+    rt.state.thought = `${verb} $${sig.coin} · ${leverage}× · ${sig.reason} · skor ${v.score} · ${exitTag}`
     rt.state.score = v.score
     rt.state.thoughtAt = Date.now()
     rt.lastActiveAt = Date.now()
@@ -1096,6 +1119,7 @@ export class Engine {
         rt.state.status = 'holding'
         rt.state.holding = {
           coin: holding.coin,
+          side: holding.side,
           pnlPct: u.pnlPct,
           sizeUsd: holding.sizeUsd,
           since: holding.openedAt,
@@ -1121,6 +1145,7 @@ export class Engine {
     autoExit?: boolean
     tpPct?: number
     slPct?: number
+    allowShort?: boolean
     maxRiskPct?: number
     maxTotalRiskPct?: number
     dailyLossStopPct?: number
@@ -1165,6 +1190,8 @@ export class Engine {
     this.settings.autoExit = payload.autoExit ?? this.settings.autoExit
     this.settings.tpPct = Math.min(30, Math.max(0.1, payload.tpPct ?? this.settings.tpPct))
     this.settings.slPct = Math.min(15, Math.max(0.05, payload.slPct ?? this.settings.slPct))
+    // short entries: user may turn the short side on/off
+    this.settings.allowShort = payload.allowShort ?? this.settings.allowShort
     // risk limits: clamped INTO the hard ceilings — a config may only tighten
     const limits = clampLimits({
       maxRiskPct: payload.maxRiskPct ?? this.settings.maxRiskPct,
@@ -1203,6 +1230,7 @@ export class Engine {
           autoExit: this.settings.autoExit,
           tpPct: this.settings.tpPct,
           slPct: this.settings.slPct,
+          allowShort: this.settings.allowShort,
           maxRiskPct: this.settings.maxRiskPct,
           maxTotalRiskPct: this.settings.maxTotalRiskPct,
           dailyLossStopPct: this.settings.dailyLossStopPct,
@@ -1306,7 +1334,7 @@ export class Engine {
           botName: def.name,
           botColor: def.color,
           coin: p.coin,
-          side: 'long',
+          side: p.side,
           sizeUsd: p.sizeUsd,
           entryPx: p.entryPx,
           exitPx: null,
@@ -1355,6 +1383,7 @@ export class Engine {
       autoExit: this.settings.autoExit,
       tpPct: this.settings.tpPct,
       slPct: this.settings.slPct,
+      allowShort: this.settings.allowShort,
       risk: {
         perTradePct: this.risk.limits.maxRiskPct,
         totalPct: this.risk.limits.maxTotalRiskPct,
