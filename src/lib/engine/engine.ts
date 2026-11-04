@@ -262,7 +262,7 @@ export class Engine {
         },
         cooldownUntil: 0,
         lastActiveAt: Date.now(),
-        nextScanThoughtAt: Date.now() + rand(8000, 25000),
+        nextScanThoughtAt: Date.now() + rand(2000, 6000),
       })
     }
 
@@ -816,7 +816,11 @@ export class Engine {
       rt.state.wins = this.settings.mode === pos.mode ? cur.wins : rt.state.wins
       rt.state.losses = this.settings.mode === pos.mode ? cur.losses : rt.state.losses
       rt.lastActiveAt = Date.now()
-      const cdScale = this.settings.riskProfile === 'turbo' ? 0.75 : 1
+      const cdScale = this.settings.riskProfile === 'turbo' ? 0 : this.settings.riskProfile === 'balanced' ? 0.5 : 1
+      // ALWAYS-ON (user mandate): turbo bots take ZERO post-close rest — the
+      // adaptive losing-streak boost, the brain vetoes and the dead-money
+      // cutter are the brakes now, not idle time. chill keeps full cooldown,
+      // balanced half.
       const cd =
         (pnl > 0
           ? rand(def.winCooldown[0], def.winCooldown[1])
@@ -1009,8 +1013,10 @@ export class Engine {
         heldCoins.add(sig.coin)
         clusterCount.set(cl, (clusterCount.get(cl) ?? 0) + 1)
         openForMode.push(this.positions[this.positions.length - 1])
-        // turbo = the user asked for speed: 18s desk gap; other profiles 30s
-        this.nextEntryAt = now + (this.settings.riskProfile === 'turbo' ? 18_000 : 30_000)
+        // ALWAYS-ON: turbo desk gap 6s (was 18s) — analysis and re-entry run
+        // continuously; churn protection now lives in the gates (ranging
+        // veto, R:R floor, streak boost, dead-money cutter), not in waiting.
+        this.nextEntryAt = now + (this.settings.riskProfile === 'turbo' ? 6_000 : 30_000)
       }
     }
   }
@@ -1196,11 +1202,30 @@ export class Engine {
       if (holding) continue
       if (now < rt.cooldownUntil) continue
       if (now < rt.nextScanThoughtAt) continue
-      rt.nextScanThoughtAt = now + rand(18000, 42000)
-      const pool = rt.def.scanningThoughts
-      rt.state.thought = pool[Math.floor(Math.random() * pool.length)]
+      rt.nextScanThoughtAt = now + rand(4000, 9000)
+      // ALWAYS-ON analysis: most updates are a LIVE market readout (regime,
+      // 5m trend, RSI of a real coin), not a canned phrase — the desk visibly
+      // thinks every few seconds. Canned pool stays as fallback.
+      const live = this.liveScanReadout()
+      rt.state.thought = live && Math.random() < 0.65 ? live : pool[Math.floor(Math.random() * pool.length)]
       rt.state.thoughtAt = now
     }
+  }
+
+  /** one-line LIVE market readout for the always-on analysis display */
+  private liveScanReadout(): string | null {
+    const coins = this.market.liquidCoins()
+    if (coins.length === 0) return null
+    const coin = coins[Math.floor(Math.random() * coins.length)]
+    const parts: string[] = [`$${coin}:`]
+    const reg = this.market.regime(coin)
+    if (reg) parts.push(reg.kind === 'trending' ? (reg.up ? '1m ↑ efisien' : '1m ↓ efisien') : '1m ranging')
+    const htf = this.market.htfTrend(coin, 5, 12)
+    if (htf) parts.push(htf.above ? (htf.rising ? 'tren 5m ↑' : 'tren 5m ↑ flat') : htf.rising ? 'tren 5m ↓ membaik' : 'tren 5m ↓')
+    const rsi = this.market.rsi14(coin)
+    if (rsi != null) parts.push(`RSI ${rsi.toFixed(0)}`)
+    if (parts.length === 1) return null
+    return `${parts.join(' · ')} · dipindai terus`
   }
 
   private updateBotStatuses(now: number) {
