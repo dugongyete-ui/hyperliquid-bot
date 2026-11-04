@@ -803,10 +803,11 @@ export class Engine {
       rt.state.wins = this.settings.mode === pos.mode ? cur.wins : rt.state.wins
       rt.state.losses = this.settings.mode === pos.mode ? cur.losses : rt.state.losses
       rt.lastActiveAt = Date.now()
+      const cdScale = this.settings.riskProfile === 'turbo' ? 0.75 : 1
       const cd =
-        pnl > 0
+        (pnl > 0
           ? rand(def.winCooldown[0], def.winCooldown[1])
-          : rand(def.lossCooldown[0], def.lossCooldown[1])
+          : rand(def.lossCooldown[0], def.lossCooldown[1])) * cdScale
       rt.cooldownUntil = Date.now() + cd * 1000
       rt.state.thought = isScratch
         ? `flat di $${pos.coin} · ${reason}`
@@ -944,12 +945,25 @@ export class Engine {
       // ---- the entry brain: confluence gate on every candidate ----
       const f = this.form.get(rt.def.key)
       // losing streak → pickier (needs a higher score); 3+ wins → a little bolder.
-      // momentum carries a permanent +6: the first 151 closed trades showed a
-      // 32% win rate and the worst PnL of the crew — it must clear a higher bar.
-      const boost =
-        (f ? (f.consecLoss > 0 ? Math.min(15, f.consecLoss * 5) : f.consecWin >= 3 ? -5 : 0) : 0) +
-        (rt.def.key === 'momentum' ? 6 : 0)
-      const v = verdict(sig.coin, this.market, kindOf(rt.def.key), sig.side, { bored: false, boost })
+      // The old momentum +6 bar came from the 151-trade era — the 27-trade
+      // autopsy then showed momentum imbalance as the ONLY green family, and
+      // the 143→3 funnel proved the extra bar just deadened the desk.
+      const boost = f
+        ? f.consecLoss > 0
+          ? Math.min(15, f.consecLoss * 5)
+          : f.consecWin >= 3
+            ? -5
+            : 0
+        : 0
+      // profile identity: turbo trades FASTER (−4 slack, shorter gaps), chill
+      // is the pickier one (+3)
+      const profileAdj =
+        this.settings.riskProfile === 'turbo' ? -4 : this.settings.riskProfile === 'chill' ? 3 : 0
+      const v = verdict(sig.coin, this.market, kindOf(rt.def.key), sig.side, {
+        bored: false,
+        boost,
+        profileAdj,
+      })
       this.smart.scans++
       if (!v.ok) {
         this.smart.vetoes++
@@ -982,7 +996,8 @@ export class Engine {
         heldCoins.add(sig.coin)
         clusterCount.set(cl, (clusterCount.get(cl) ?? 0) + 1)
         openForMode.push(this.positions[this.positions.length - 1])
-        this.nextEntryAt = now + 30_000 // desk-wide breathing room after every open
+        // turbo = the user asked for speed: 18s desk gap; other profiles 30s
+        this.nextEntryAt = now + (this.settings.riskProfile === 'turbo' ? 18_000 : 30_000)
       }
     }
   }

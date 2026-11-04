@@ -355,6 +355,31 @@ export class MarketData {
     return ((b - a) / a) * 100
   }
 
+  /**
+   * Market-wide direction (breadth): share of the top-40 liquid coins ticking
+   * up vs down over the last ~2.5 minutes. The per-coin 5m trend gate only
+   * protects entries when candle data exists (rotation covers a few coins per
+   * tick) — which is how 21 of 23 trades ended up LONG inside a market-wide
+   * red tide. Breadth is tick-based → fresh for the WHOLE universe, always.
+   */
+  marketBreadth(): { upFrac: number; downFrac: number; n: number } | null {
+    const coins = this.liquidCoins(5_000_000)
+      .sort((a, b) => (this.vol24h.get(b) ?? 0) - (this.vol24h.get(a) ?? 0))
+      .slice(0, 40)
+    if (coins.length < 10) return null
+    let up = 0
+    let down = 0
+    for (const c of coins) {
+      const r = this.retPct(c, 60) // ~2.5 minutes of ticks
+      if (r == null) continue
+      if (r > 0.05) up++
+      else if (r < -0.05) down++
+    }
+    const n = up + down
+    if (n < 10) return null
+    return { upFrac: up / n, downFrac: down / n, n }
+  }
+
   spreadPct(coin: string): number | null {
     const b = this.book.get(coin)
     if (!b) return null

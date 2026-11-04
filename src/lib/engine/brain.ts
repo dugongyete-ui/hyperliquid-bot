@@ -21,6 +21,9 @@
 //                      fuel); getting PAID to hold our side is a tailwind
 //  10. open interest — OI rising = fresh money fuels the move; OI falling =
 //                      the move is just positions closing (weak)
+//  11. market breadth — tick-based share of the top-40 liquid coins moving our
+//                      way; never swim against a market-wide red/green tide
+//                      (fixed: 21/23 trades were LONG inside a market dump)
 //
 // No AI, no vibes — every gate is a number computed from live candles/books,
 // so the desk rules ("we only trade with confirmation") are ENFORCED, not
@@ -41,11 +44,12 @@ const KIND_BY_KEY: Record<BotKey, SignalKind> = {
   scalper: 'micro',
 }
 
-/** score needed to pass, per signal kind — tuned from a 27-trade autopsy:
- *  micro depth-only entries bled (10 trades, all red) and whale prints churned
- *  at breakeven, so both clear a higher bar; momentum imbalance was the only
- *  consistently green family and keeps its threshold. */
-const NEED: Record<SignalKind, number> = { breakout: 52, dip: 48, whale: 52, micro: 58 }
+/** score needed to pass, per signal kind — calibrated twice from live funnels:
+ *  the 27-trade autopsy raised micro/whale (depth-only entries bled), then the
+ *  143→3 funnel showed the stack was TOO dead, so bars came back down a notch
+ *  and the market-breadth veto took over the heavy lifting (it kills the
+ *  direction-against-the-ocean trades that actually lost money). */
+const NEED: Record<SignalKind, number> = { breakout: 50, dip: 48, whale: 50, micro: 54 }
 
 export interface BrainVerdict {
   ok: boolean
@@ -65,13 +69,13 @@ export function verdict(
   market: MarketData,
   kind: SignalKind,
   side: TradeSide,
-  opts: { bored: boolean; boost: number } // boost > 0 = pickier after losses, < 0 = confident after wins
+  opts: { bored: boolean; boost: number; profileAdj?: number } // profileAdj: turbo −4 (faster), chill +3 (pickier)
 ): BrainVerdict {
   const pass: string[] = []
   const veto: string[] = []
   const soft: BrainVerdict['soft'] = []
   let score = 0
-  const need = Math.max(36, NEED[kind] + (opts.bored ? -8 : 0) + opts.boost)
+  const need = Math.max(36, NEED[kind] + (opts.bored ? -8 : 0) + opts.boost + (opts.profileAdj ?? 0))
   const up = side === 'long' // direction helper — every gate mirrors on this
   const meanRev = kind === 'dip' // dip (long) / rip (short) = mean reversion
 
@@ -127,14 +131,14 @@ export function verdict(
       pass.push('range → mean reversion')
     } else if (reg.kind === 'ranging' && kind === 'breakout') {
       // sideways tape: breakouts die at the range edge (grid wisdom —
-      // ranging markets pay mean-reverters, not chasers). The "jebol low
-      // range" family lost on 3 of 4 trades in chop — a hard-ish penalty.
-      soft.push({ label: 'market sideways', pts: 14 })
+      // ranging markets pay mean-reverters, not chasers). Softened after the
+      // 143→3 funnel: the market-breadth veto now owns the big directional
+      // mistakes, this stays as a per-coin residual nudge.
+      soft.push({ label: 'market sideways', pts: 10 })
     } else if (reg.kind === 'ranging' && kind === 'micro') {
-      // depth imbalance alone is NOT an edge in chop: all 10 micro entries in
-      // the autopsy fired in ranging tape and every one bled. Make the scalper
-      // pay for trading without a trend.
-      soft.push({ label: 'market sideways', pts: 8 })
+      // depth imbalance alone is NOT an edge in chop: the scalper pays a
+      // residual penalty for trading without a trend (same rationale as above).
+      soft.push({ label: 'market sideways', pts: 6 })
     }
   }
 
@@ -235,6 +239,25 @@ export function verdict(
       pass.push(`OI +${oiChg.toFixed(1)}% · dana segar`)
     } else if (oiChg <= -2.5) {
       soft.push({ label: 'OI turun · gerakan dari tutup posisi', pts: 8 })
+    }
+  }
+
+  // ---------- 11. market breadth — never swim against the whole ocean ----------
+  // Tick-based, covers the WHOLE universe (the per-coin 5m gate only runs when
+  // candle rotation has data for that coin). Veto when <25% of the top-40
+  // liquid coins move our way; bonus when ≥50% do (a rising tide).
+  const br = market.marketBreadth()
+  if (br) {
+    const withUs = up ? br.upFrac : br.downFrac
+    if (withUs < 0.25) {
+      veto.push(
+        up
+          ? `pasar merah umum · cuma ${Math.round(br.upFrac * 100)}% naik`
+          : `pasar hijau umum · cuma ${Math.round(br.downFrac * 100)}% turun`
+      )
+    } else if (withUs >= 0.5) {
+      score += 8
+      pass.push(`${Math.round(withUs * 100)}% pasar searah`)
     }
   }
 
