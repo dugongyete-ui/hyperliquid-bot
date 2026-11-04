@@ -42,10 +42,13 @@ const FLOORS = {
 
 export function evaluateSignal(
   def: CrewDef,
-  market: MarketData,
-  bored: boolean
+  market: MarketData
 ): Signal | null {
-  const relax = bored ? 0.6 : 1
+  // The old boredom relax (relax = 0.6 after 90s idle) is removed — it eased
+  // the trigger thresholds and produced zero-edge churn (60% of all closed
+  // trades were flat "habis waktu" fills). Agents now fire only at
+  // full-strength triggers.
+  const relax = 1
   switch (def.key) {
     case 'momentum':
       return momentumSignal(market, relax)

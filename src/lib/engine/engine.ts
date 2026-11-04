@@ -10,6 +10,7 @@ import { rejectReason, verdict, kindOf } from './brain'
 import {
   CEILINGS,
   RiskLedger,
+  TAKER_FEE,
   clampLimits,
   clusterOf,
   stressedRiskOfPosition,
@@ -739,6 +740,12 @@ export class Engine {
   private async finalizeClose(pos: OpenPosition, reason: string, exitPx: number | null, pnl: number) {
     this.positions = this.positions.filter((p) => p.tradeId !== pos.tradeId)
     this.risk.release(pos.tradeId)
+    // honest accounting: entry + exit are BOTH taker fills (market orders),
+    // so subtract the round-trip fee. Without this the SIM quietly hides
+    // ~0.09% of notional per trade — on the first 151 closed trades that
+    // hidden cost was larger than the entire reported PnL.
+    const feeUsd = pos.qty * (pos.entryPx + (exitPx ?? pos.entryPx)) * TAKER_FEE
+    pnl -= feeUsd
     const def = crewDef(pos.botKey)
     const pnlPct = pos.sizeUsd > 0 ? (pnl / pos.sizeUsd) * 100 : 0
     // R-multiple: result measured against the risk actually budgeted at entry
@@ -882,9 +889,21 @@ export class Engine {
       if (openForMode.some((p) => p.botKey === rt.def.key)) continue
 
       const idleSec = (now - rt.lastActiveAt) / 1000
-      const bored = idleSec > 90
-      const sig = evaluateSignal(rt.def, this.market, bored)
-      if (!sig || heldCoins.has(sig.coin)) continue
+      // NOTE: the old "bored relax" (easier agent triggers after 90s idle, plus
+      // −8 on the brain score) is GONE — the first 151 closed trades showed it
+      // was responsible for the zero-edge churn: 60% of all exits were flat
+      // "habis waktu" fills. Patience beats activity on a small account.
+      const sig = evaluateSignal(rt.def, this.market)
+      if (!sig) {
+        // rare idle whisper so a quiet desk doesn't look frozen (rate-limited)
+        if (idleSec > 240 && now - (this.lastVetoThoughtAt.get(rt.def.key) ?? 0) > 20_000) {
+          this.lastVetoThoughtAt.set(rt.def.key, now)
+          rt.state.thought = 'tidak ada setup layak — menunggu, bukan memaksa'
+          rt.state.thoughtAt = now
+        }
+        continue
+      }
+      if (heldCoins.has(sig.coin)) continue
       // user gate: short entries off → long-only mode
       if (sig.side === 'short' && !this.settings.allowShort) continue
 
@@ -893,9 +912,13 @@ export class Engine {
 
       // ---- the entry brain: confluence gate on every candidate ----
       const f = this.form.get(rt.def.key)
-      // losing streak → pickier (needs a higher score); 3+ wins → a little bolder
-      const boost = f ? (f.consecLoss > 0 ? Math.min(15, f.consecLoss * 5) : f.consecWin >= 3 ? -5 : 0) : 0
-      const v = verdict(sig.coin, this.market, kindOf(rt.def.key), sig.side, { bored, boost })
+      // losing streak → pickier (needs a higher score); 3+ wins → a little bolder.
+      // momentum carries a permanent +6: the first 151 closed trades showed a
+      // 32% win rate and the worst PnL of the crew — it must clear a higher bar.
+      const boost =
+        (f ? (f.consecLoss > 0 ? Math.min(15, f.consecLoss * 5) : f.consecWin >= 3 ? -5 : 0) : 0) +
+        (rt.def.key === 'momentum' ? 6 : 0)
+      const v = verdict(sig.coin, this.market, kindOf(rt.def.key), sig.side, { bored: false, boost })
       this.smart.scans++
       if (!v.ok) {
         this.smart.vetoes++
