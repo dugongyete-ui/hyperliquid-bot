@@ -58,7 +58,13 @@ export type RiskProfile = 'chill' | 'balanced' | 'turbo'
 const PROFILES: Record<RiskProfile, { tpMul: number; slMul: number; timeStop: number; trailFrac: number }> = {
   chill: { tpMul: 1.5, slMul: 1.3, timeStop: 600, trailFrac: 0.45 },
   balanced: { tpMul: 1.0, slMul: 1.0, timeStop: 390, trailFrac: 0.4 },
-  turbo: { tpMul: 0.7, slMul: 0.85, timeStop: 240, trailFrac: 0.5 },
+  // turbo = fast PACING identity (18s desk gap, −4 brain adj, cd ×0.75), but
+  // the prize is NOT shrunk anymore. 30-trade autopsy: tpMul 0.7 capped every
+  // winner at ~+0.24% (the noise floor) while losses ran the full SL — payoff
+  // 1.25 against a 17% winrate is mathematically dead. tp 1.05 keeps the
+  // speed and restores a target worth reaching; sl 0.9 with the 1.5 R:R
+  // floor still enforced downstream.
+  turbo: { tpMul: 1.05, slMul: 0.9, timeStop: 240, trailFrac: 0.5 },
 }
 
 /** Per-position exit plan in price-move % — derived from live volatility at
@@ -704,6 +710,13 @@ export class Engine {
       else if (pos.lastPnlPct <= -slPx) exitReason = 'stop loss'
       else if (armed && pos.lastPnlPct <= dynStop)
         exitReason = pos.peakPct - trail > beFloor ? 'trailing stop' : 'kunci BEP'
+      else if (!armed && age >= timeStopSec * 0.55 && pos.lastPnlPct <= -slPx * 0.35)
+        // dead-money cutter — 30-trade autopsy: 14/30 trades bled to the bell
+        // for −$12.03, 13 of them underwater the whole ride. Halfway to the
+        // bell with nothing to show but a third-of-stop bleed means the thesis
+        // already failed: free the capital instead of donating fees. Scaled to
+        // the stop (0.35×sl) so wide-stop trending trades keep their room.
+        exitReason = 'tanpa tenaga'
       else if (!armed && age >= timeStopSec) {
         // HyperGrok lifecycle discipline: never decapitate a working trade at
         // the bell. If it already walked ≥30% of the way to target, extend the

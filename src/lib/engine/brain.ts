@@ -130,15 +130,23 @@ export function verdict(
       score += 12
       pass.push('range → mean reversion')
     } else if (reg.kind === 'ranging' && kind === 'breakout') {
-      // sideways tape: breakouts die at the range edge (grid wisdom —
-      // ranging markets pay mean-reverters, not chasers). Softened after the
-      // 143→3 funnel: the market-breadth veto now owns the big directional
-      // mistakes, this stays as a per-coin residual nudge.
-      soft.push({ label: 'market sideways', pts: 10 })
+      // HARD VETO — 30-trade autopsy: 4 ranging breakouts, 0 wins, −$3.73.
+      // Every "tembus high/low range 20m" died on the tape or the bell. The
+      // soft −10/−14 penalty still let them through; grid wisdom is absolute
+      // here: ranging tape pays mean-reverters, never chasers. This is a
+      // PER-COIN check, so genuinely trending coins are unaffected.
+      veto.push('range · breakout tepi range')
     } else if (reg.kind === 'ranging' && kind === 'micro') {
-      // depth imbalance alone is NOT an edge in chop: the scalper pays a
-      // residual penalty for trading without a trend (same rationale as above).
-      soft.push({ label: 'market sideways', pts: 6 })
+      // depth imbalance alone is NOT an edge in chop: raised −6 → −12 after
+      // the 30-trade autopsy (depth-triggered trades bled −$5.44; the only 3
+      // wins came from trending coins). −12 ≈ effective veto unless every
+      // other dimension ALSO confirms.
+      soft.push({ label: 'market sideways', pts: 12 })
+    } else if (reg.kind === 'ranging' && kind === 'whale') {
+      // whale prints inside a range are exhaust, not ignition (autopsy: 1/11
+      // wins, −$6.40 — "whale jual" shorts at range lows went nowhere and
+      // bled to the bell). Needs overwhelming confluence to fire.
+      soft.push({ label: 'market sideways', pts: 12 })
     }
   }
 
