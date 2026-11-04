@@ -92,6 +92,8 @@ interface OpenPosition {
   reason: string
   adopted: boolean
   plan: ExitPlan
+  /** once-only time-stop extension for trades that are working but need time */
+  timeExtended?: boolean
 }
 
 interface BotStats {
@@ -178,6 +180,8 @@ export class Engine {
   private form = new Map<BotKey, AgentForm>()
   /** brain activity counters, reset on a rolling 5-min window */
   private smart = { scans: 0, vetoes: 0, entries: 0, windowStart: Date.now() }
+  /** desk-wide entry pacing — no second entry until this timestamp (burst dampener) */
+  private nextEntryAt = 0
   private lastVetoThoughtAt = new Map<BotKey, number>()
   private closedCache: TradeRow[] = []
   private botStats: Record<TradeMode, Record<string, BotStats>> = {
@@ -444,11 +448,21 @@ export class Engine {
     const trending = reg?.kind === 'trending'
     const tpReg = trending ? 1.45 : 0.78
     const trailReg = trending ? 1.2 : 0.85
-    const timeReg = trending ? 1.5 : 0.8
+    // ranging ×0.8 was the "habis waktu" factory: 14/28 exits died at the bell
+    // (~3 min) — a ranging market needs MORE time for its edge to play out,
+    // not less. ×1.1 gives mean reversion room while winners still extend.
+    const timeReg = trending ? 1.5 : 1.1
     const tpBase = clamp(1.7 * horizon * vol, 0.3, def.exit.tp * prof.tpMul)
     const slBase = clamp(1.15 * horizon * vol, 0.18, def.exit.sl * prof.slMul)
+    // R:R floor — the data autopsy showed ranging TP ×0.78 with an unchanged SL
+    // collapsed payoff to ~1.16:1, needing a 46% win rate while the desk ran
+    // 36%. A trade whose target is smaller than 1.5× its stop is a fee donation.
+    const tpPx = Math.max(
+      clamp(tpBase * tpReg, 0.2, def.exit.tp * prof.tpMul * 1.6),
+      slBase * 1.5
+    )
     return {
-      tpPx: clamp(tpBase * tpReg, 0.2, def.exit.tp * prof.tpMul * 1.6),
+      tpPx,
       slPx: slBase,
       trailPx: Math.max(0.22, prof.trailFrac * tpBase * trailReg),
       timeStopSec: Math.round(prof.timeStop * timeReg),
@@ -679,9 +693,10 @@ export class Engine {
       const trail = Math.max(trailPx, 0.24)
       // breakeven lock ("kunci BEP"): once the trade has shown 55% of its
       // target, the worst case becomes a tiny fee-covered exit instead of
-      // watching a winner rot into a full -1R stop loss
+      // watching a winner rot into a full -1R stop loss. An extended trade
+      // (given extra time at the bell) arms earlier — it already proved itself.
       const beFloor = 0.05
-      const armed = pos.peakPct >= tpPx * 0.55
+      const armed = pos.peakPct >= tpPx * (pos.timeExtended ? 0.3 : 0.55)
       const dynStop = Math.max(beFloor, pos.peakPct - trail)
 
       let exitReason: string | null = null
@@ -689,7 +704,18 @@ export class Engine {
       else if (pos.lastPnlPct <= -slPx) exitReason = 'stop loss'
       else if (armed && pos.lastPnlPct <= dynStop)
         exitReason = pos.peakPct - trail > beFloor ? 'trailing stop' : 'kunci BEP'
-      else if (!armed && age >= timeStopSec) exitReason = 'habis waktu'
+      else if (!armed && age >= timeStopSec) {
+        // HyperGrok lifecycle discipline: never decapitate a working trade at
+        // the bell. If it already walked ≥30% of the way to target, extend the
+        // clock ONCE (+75%) and let the BEP/trail machinery protect it. Trades
+        // going nowhere still exit — dead capital is a cost too.
+        if (!pos.timeExtended && pos.lastPnlPct >= tpPx * 0.3) {
+          pos.timeExtended = true
+          pos.plan.timeStopSec = timeStopSec + Math.round(timeStopSec * 0.75)
+        } else {
+          exitReason = 'habis waktu'
+        }
+      }
 
       // margin guard (SIM honesty): never let a sim loss exceed ~92% of margin
       if (
@@ -870,6 +896,11 @@ export class Engine {
     if (!this.settings.running || !this.market.feedOk) return
     // three-state monitoring: a stale feed is UNAVAILABLE, never a quiet all-clear
     if (now - this.market.lastUpdateAt > 15_000) return
+    // desk-wide pacing: entries 10-20s apart in bursts were correlated noise
+    // paying the spread twice (data: median close-to-close gap hit 5s). One
+    // desk, one deliberate position at a time — HyperGrok sends a ticket, not
+    // a machine gun.
+    if (now < this.nextEntryAt) return
     const equity = this.currentEquity()
     const openForMode = this.positions.filter((p) => p.mode === this.settings.mode)
     if (openForMode.length >= MAX_OPEN) return
@@ -951,6 +982,7 @@ export class Engine {
         heldCoins.add(sig.coin)
         clusterCount.set(cl, (clusterCount.get(cl) ?? 0) + 1)
         openForMode.push(this.positions[this.positions.length - 1])
+        this.nextEntryAt = now + 30_000 // desk-wide breathing room after every open
       }
     }
   }
@@ -1326,6 +1358,7 @@ export class Engine {
     this.form.clear()
     this.coinBlock.clear()
     this.lastVetoThoughtAt.clear()
+    this.nextEntryAt = 0
     this.smart = { scans: 0, vetoes: 0, entries: 0, windowStart: Date.now() }
     for (const rt of this.bots.values()) rt.state.score = null
     this.rebuildLedger()

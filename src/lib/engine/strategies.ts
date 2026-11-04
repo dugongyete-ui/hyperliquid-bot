@@ -179,10 +179,14 @@ function scalperSignal(market: MarketData, relax: number): Signal | null {
     if (imb == null || spread == null || micro == null) continue
     scored.push({ coin, imb, spread, micro })
   }
-  // LONG: bids stacked (imb > 1)
+  // LONG: bids stacked (imb > 1) AND the last ticks agree. The 27-trade
+  // autopsy killed the old lone-depth entry (10 trades, zero winners): depth
+  // imbalance without tick confirmation is just resting spoof-able size, so
+  // the scalper now demands BOTH a stronger imbalance (≥1.8×) and price
+  // already ticking its way (|micro| > 0.01%).
   scored.sort((a, b) => b.imb - a.imb)
   for (const s of scored) {
-    if (s.spread < 0.045 && s.imb > 1.5 - (1 - relax) * 0.3 && s.micro > -0.005) {
+    if (s.spread < 0.045 && s.imb > 1.8 - (1 - relax) * 0.3 && s.micro > 0.01) {
       return {
         coin: s.coin,
         side: 'long',
@@ -190,11 +194,11 @@ function scalperSignal(market: MarketData, relax: number): Signal | null {
       }
     }
   }
-  // SHORT: asks stacked (imb < 1, mirror threshold)
+  // SHORT: asks stacked (imb < 1, mirror threshold) + ticks falling
   const shorts = scored.sort((a, b) => a.imb - b.imb)
   for (const s of shorts) {
-    const need = 1 / (1.5 - (1 - relax) * 0.3)
-    if (s.spread < 0.045 && s.imb < need && s.micro < 0.005) {
+    const need = 1 / (1.8 - (1 - relax) * 0.3)
+    if (s.spread < 0.045 && s.imb < need && s.micro < -0.01) {
       return {
         coin: s.coin,
         side: 'short',

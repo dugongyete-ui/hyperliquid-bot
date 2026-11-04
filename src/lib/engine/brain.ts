@@ -15,9 +15,8 @@
 //                      REQUIRE the extreme on their side
 //   6. overextension — a coin that already ran ±5%/30m is someone else's exit
 //   7. spread        — wide book = instant slippage loss on entry+exit
-//   8. book depth    — cumulative USD depth 5/10/25 bps around mid: a wall on
-//                      the wrong side of our entry is penalized, stacked
-//                      support on our side pays
+//   8. book depth    — reach-aware grid imbalance (HyperGrok "20 levels is a
+//                      page, not the book"): only comparable widths count
 //   9. funding       — never crowd the popular side (extreme funding = squeeze
 //                      fuel); getting PAID to hold our side is a tailwind
 //  10. open interest — OI rising = fresh money fuels the move; OI falling =
@@ -42,8 +41,11 @@ const KIND_BY_KEY: Record<BotKey, SignalKind> = {
   scalper: 'micro',
 }
 
-/** score needed to pass, per signal kind (mean-reversion → slightly easier) */
-const NEED: Record<SignalKind, number> = { breakout: 52, dip: 48, whale: 48, micro: 52 }
+/** score needed to pass, per signal kind — tuned from a 27-trade autopsy:
+ *  micro depth-only entries bled (10 trades, all red) and whale prints churned
+ *  at breakeven, so both clear a higher bar; momentum imbalance was the only
+ *  consistently green family and keeps its threshold. */
+const NEED: Record<SignalKind, number> = { breakout: 52, dip: 48, whale: 52, micro: 58 }
 
 export interface BrainVerdict {
   ok: boolean
@@ -125,8 +127,14 @@ export function verdict(
       pass.push('range → mean reversion')
     } else if (reg.kind === 'ranging' && kind === 'breakout') {
       // sideways tape: breakouts die at the range edge (grid wisdom —
-      // ranging markets pay mean-reverters, not chasers)
-      soft.push({ label: 'market sideways', pts: 10 })
+      // ranging markets pay mean-reverters, not chasers). The "jebol low
+      // range" family lost on 3 of 4 trades in chop — a hard-ish penalty.
+      soft.push({ label: 'market sideways', pts: 14 })
+    } else if (reg.kind === 'ranging' && kind === 'micro') {
+      // depth imbalance alone is NOT an edge in chop: all 10 micro entries in
+      // the autopsy fired in ranging tape and every one bled. Make the scalper
+      // pay for trading without a trend.
+      soft.push({ label: 'market sideways', pts: 8 })
     }
   }
 
